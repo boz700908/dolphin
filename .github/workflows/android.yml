@@ -57,10 +57,16 @@ jobs:
       - name: Install SDK packages
         run: |
           set -eu
-          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
           echo "ANDROID_HOME=${ANDROID_HOME}" >> "$GITHUB_ENV"
+          echo "Using SDK at ${ANDROID_HOME}"
 
-          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -maxdepth 2 -name sdkmanager | sort | tail -1)"
+          SDKMANAGER="$(find "$ANDROID_HOME" -maxdepth 5 -type f -name sdkmanager | sort | tail -1)"
+          if [ -z "$SDKMANAGER" ]; then
+            echo "No sdkmanager below ${ANDROID_HOME}:" >&2
+            ls -la "${ANDROID_HOME}" >&2 || true
+            exit 1
+          fi
           echo "Using ${SDKMANAGER}"
           echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
 
