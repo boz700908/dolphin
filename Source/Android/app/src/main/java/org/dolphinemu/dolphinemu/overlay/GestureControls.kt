@@ -3,6 +3,8 @@
 package org.dolphinemu.dolphinemu.overlay
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.view.MotionEvent
 import org.dolphinemu.dolphinemu.features.input.model.InputOverrider
 
@@ -15,10 +17,12 @@ import org.dolphinemu.dolphinemu.features.input.model.InputOverrider
  *   the finger travels further than [SWIPE_THRESHOLD_DP] from wherever it landed, and it stays
  *   applied until the finger comes back within [SWIPE_RELEASE_DP] (hysteresis), changes direction,
  *   or is lifted. Nothing waits for MotionEvent.ACTION_UP.
- * - The left half of the screen is A, the right half is B. The press happens on ACTION_DOWN, so
- *   holding still gives a held A or B. Dragging far enough replaces it with the d-pad direction.
+ * - The left half of the screen is A, the right half is B. The press is not made on contact: it
+ *   waits [TAP_PRESS_MS] and is dropped again if the finger starts moving first, so a drag out of
+ *   the half only presses a direction. A finger that stays put presses A or B and keeps holding it
+ *   until it is lifted, and a tap shorter than that window is still pressed when it is lifted.
  * - The four corners are 1 (top left), 2 (top right), - (bottom left) and + (bottom right). A
- *   corner wins over the half it sits in.
+ *   corner wins over the half it sits in, and its press is immediate.
  *
  * Every pointer owns its own state, so fingers never interfere with each other. Two fingers bound
  * to the same control are reference counted, so lifting one does not release the control the other
@@ -32,6 +36,12 @@ class GestureControls(private val controllerIndex: Int) {
      */
     private class PointerState(val downX: Float, val downY: Float) {
         var control: Int = NO_CONTROL
+
+        /** A or B the finger landed on, still waiting to be pressed. */
+        var pendingControl: Int = NO_CONTROL
+
+        /** The scheduled press for [pendingControl], so that it can be called off. */
+        var pendingPress: Runnable? = null
     }
 
     private val pointers = HashMap<Int, PointerState>()
@@ -41,6 +51,8 @@ class GestureControls(private val controllerIndex: Int) {
 
     /** True while controls have been registered with the input core and may need releasing. */
     private var registered = false
+
+    private val handler = Handler(Looper.getMainLooper())
 
     val isActive: Boolean
         get() = pointers.isNotEmpty()
@@ -59,29 +71,52 @@ class GestureControls(private val controllerIndex: Int) {
                 val x = event.getX(index)
                 val y = event.getY(index)
 
-                pointers[pointerId] = PointerState(x, y)
-                apply(pointerId, hitTest(x, y, width, height))
+                val state = PointerState(x, y)
+                pointers[pointerId] = state
+
+                val landing = hitTest(x, y, width, height)
+                if (landing == WIIMOTE_A || landing == WIIMOTE_B)
+                    armPress(pointerId, state, landing)
+                else
+                    apply(pointerId, landing)
             }
 
             MotionEvent.ACTION_MOVE -> {
                 for (index in 0 until event.pointerCount) {
                     val pointerId = event.getPointerId(index)
                     val state = pointers[pointerId] ?: continue
+                    val x = event.getX(index)
+                    val y = event.getY(index)
+
+                    // A finger that moves has started a drag, so the A or B it landed on is not
+                    // something it meant to press after all.
+                    if (state.pendingControl != NO_CONTROL && hasMoved(state, x, y, density))
+                        cancelPress(state)
+
+                    if (state.pendingControl != NO_CONTROL)
+                        continue
 
                     apply(
                         pointerId,
-                        resolveDirection(
-                            state, event.getX(index), event.getY(index),
-                            density, width, height
-                        )
+                        resolveDirection(state, x, y, density, width, height)
                     )
                 }
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
                 val pointerId = event.getPointerId(event.actionIndex)
-                apply(pointerId, NO_CONTROL)
-                pointers.remove(pointerId)
+                val state = pointers[pointerId]
+                if (state != null) {
+                    val tap = state.pendingControl
+                    cancelPress(state)
+                    apply(pointerId, NO_CONTROL)
+                    pointers.remove(pointerId)
+
+                    // Released inside the waiting window, which means a short tap. It still has to
+                    // reach the game, and for long enough that the input core samples it.
+                    if (tap != NO_CONTROL)
+                        pressBriefly(tap)
+                }
             }
 
             MotionEvent.ACTION_CANCEL -> releaseAll()
@@ -95,6 +130,9 @@ class GestureControls(private val controllerIndex: Int) {
      * rotates or the overlay is rebuilt. Without this a control could stay pressed forever.
      */
     fun releaseAll() {
+        for (state in pointers.values)
+            cancelPress(state)
+
         for (pointerId in pointers.keys.toList())
             apply(pointerId, NO_CONTROL)
 
@@ -151,6 +189,10 @@ class GestureControls(private val controllerIndex: Int) {
         return if (dy > 0f) WIIMOTE_DOWN else WIIMOTE_UP
     }
 
+    /** True once the finger is far enough from where it landed to count as a drag. */
+    private fun hasMoved(state: PointerState, x: Float, y: Float, density: Float): Boolean =
+        kotlin.math.hypot(x - state.downX, y - state.downY) >= TAP_CANCEL_DP * density
+
     /** Where a freshly pressed finger landed: a corner first, then the half it is in. */
     private fun hitTest(x: Float, y: Float, width: Int, height: Int): Int {
         if (width <= 0 || height <= 0)
@@ -169,6 +211,39 @@ class GestureControls(private val controllerIndex: Int) {
             return if (isTop) WIIMOTE_TWO else WIIMOTE_PLUS
 
         return if (isLeft) WIIMOTE_A else WIIMOTE_B
+    }
+
+    /** Schedules the press of A or B, so that a drag that starts first can call it off. */
+    private fun armPress(pointerId: Int, state: PointerState, control: Int) {
+        state.pendingControl = control
+
+        val press = Runnable { pressPending(pointerId, state, control) }
+        state.pendingPress = press
+        handler.postDelayed(press, TAP_PRESS_MS)
+    }
+
+    private fun pressPending(pointerId: Int, state: PointerState, control: Int) {
+        if (pointers[pointerId] !== state || state.pendingControl != control)
+            return
+
+        state.pendingControl = NO_CONTROL
+        state.pendingPress = null
+        apply(pointerId, control)
+    }
+
+    private fun cancelPress(state: PointerState) {
+        state.pendingPress?.let { handler.removeCallbacks(it) }
+        state.pendingPress = null
+        state.pendingControl = NO_CONTROL
+    }
+
+    /**
+     * Presses [control] for a moment, for a tap that was over before the scheduled press was due.
+     * A press and a release in the same frame would never be sampled by the input core.
+     */
+    private fun pressBriefly(control: Int) {
+        hold(control)
+        handler.postDelayed({ release(control) }, TAP_MIN_PRESS_MS)
     }
 
     /**
@@ -251,6 +326,15 @@ class GestureControls(private val controllerIndex: Int) {
 
         /** How far back it has to come before the d-pad press is dropped. */
         private const val SWIPE_RELEASE_DP = 12f
+
+        /** How long A or B waits for the finger to prove it is not dragging. */
+        private const val TAP_PRESS_MS = 40L
+
+        /** How far the finger may drift in that time and still count as a press of A or B. */
+        private const val TAP_CANCEL_DP = 8f
+
+        /** How long a short tap is held for, so that the input core sees it at all. */
+        private const val TAP_MIN_PRESS_MS = 60L
 
         /** Whether the user has turned the gesture layer on. */
         fun isEnabled(context: Context): Boolean =
