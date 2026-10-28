@@ -18,6 +18,7 @@ from .errors import DiagnosticError
 from .font import FontHandler
 from .layout import LayoutHandler
 from .graphics import SelectionStatsHandler
+from .notice import DiagnosticNoticeHandler
 from .selection_status import SelectionStatusHandler
 from .completion_credits import CompletionCreditsHandler
 from .grading import GradingHandler
@@ -281,21 +282,6 @@ COMMAND_REPEAT = 'repeat'
 COMMAND_DESCRIPTION = 'description'
 
 
-# How many consecutive captures must fail before the failure is read out. Guest
-# RAM is read while the game may be rebuilding it, so a scene transition can
-# fail for a frame or two; reporting those made the narrator announce errors at
-# the title screen and at the level title card that were gone by the next frame.
-FAILURE_ANNOUNCE_TICKS = 3
-
-
-def announce_failure(speech, logger, error):
-    """Log every external failure and read it out when speech is available."""
-    logger.event('Assist failed', error=str(error), key=getattr(error, 'key', None),
-                 values=getattr(error, 'values', {}))
-    if speech is not None:
-        speech.say('error', detail=str(error), path='logcat')
-
-
 def run(directory=None):
     """Read the running game until the menu asks the worker to stop.
 
@@ -305,21 +291,22 @@ def run(directory=None):
     """
     logger = DebugLogger()
     speech, audio, cues, kungfu_state = None, None, None, None
+    notice, lifetime = None, None
     try:
         data = AssistData(Path(directory) if directory else
                           Path(__file__).resolve().parent / 'data')
         speech = SpeechHandler(logger)
+        notice = DiagnosticNoticeHandler(speech, logger)
         audio = AudioHandler(data.audio_directory, data.assist['kungfu_audio'])
         # The cue sounds live next to the data files; the platform loads them
         # in the background and a cue that is not ready yet stays silent.
         AssistRuntime.prepareCues(str(data.audio_directory))
         memory, reader = MemoryHandler(data, logger), ReadingHandler(data)
         lifetime = ProcessLifetimeHandler()
-        connection = GameConnectionHandler(lifetime, logger)
+        connection = GameConnectionHandler(lifetime, speech, logger, notice)
         kungfu_state = KungfuStateHandler(data, flows=True)
         cues = KungfuCueHandler(data.assist['kungfu_cues'])
         narration = NarrationHandler()
-        previous_error, previous_cue_error, error_streak = None, None, 0
         paused, descriptions = False, []
         speech.say('assist_ready')
         while True:
@@ -352,14 +339,16 @@ def run(directory=None):
             # The game can end while narration is paused, so this always runs.
             try:
                 emulator_exited = connection.poll()
+                # The process can be watched again, so a failure to watch it is
+                # over; connection.poll() has already ended it if the game ended.
+                notice.recover('process')
             except DiagnosticError as error:
-                announce_failure(speech, logger, error)
+                notice.failure('process', error)
                 emulator_exited = False
             if emulator_exited:
                 narration.reset(); reader.reset()
                 cues.reset()
                 audio.stop()
-                previous_error, previous_cue_error, error_streak = None, None, 0
                 descriptions = []
             if not paused:
                 snapshot = None
@@ -378,10 +367,7 @@ def run(directory=None):
                         # guessed at, but the rest of the reading continues.
                         cues.reset()
                         audio.stop()
-                        signature = cue_error.key, str(cue_error)
-                        if signature != previous_cue_error:
-                            logger.event('Kungfu cue inspection failed', error=str(cue_error))
-                            previous_cue_error = signature
+                        notice.failure('cues', cue_error)
                     items, descriptions, layouts = reader.read(snapshot)
                     if observed is not None:
                         try:
@@ -392,21 +378,16 @@ def run(directory=None):
                             if cue is not None:
                                 audio.play(cue['player'], cue['distance'])
                                 logger.event('Kungfu audio cue', **cue)
-                            if previous_cue_error is not None:
-                                logger.event('Kungfu cues recovered')
-                                previous_cue_error = None
+                            # The cues followed this capture, so whatever was being
+                            # reported about them is over.
+                            notice.recover('cues')
                         except DiagnosticError as cue_error:
                             cues.reset()
                             audio.stop()
-                            signature = cue_error.key, str(cue_error)
-                            if signature != previous_cue_error:
-                                logger.event('Kungfu audio playback failed', error=str(cue_error))
-                                speech.say('kungfu_cues_error', detail=str(cue_error))
-                                previous_cue_error = signature
-                    if error_streak >= FAILURE_ANNOUNCE_TICKS:
-                        speech.say('assist_recovered')
-                        logger.event('Diagnostic recovered', pid=metadata['pid'])
-                    previous_error, error_streak = None, 0
+                            notice.failure('cues', cue_error)
+                    # This read worked, so the episode a failed one opened is
+                    # over and is closed here.
+                    notice.recover('reading')
                     batch = narration.update(items)
                     for row in batch:
                         speech.say('assist_text', text=row['text'])
@@ -430,26 +411,37 @@ def run(directory=None):
                         narration.reset(); reader.reset()
                         cues.reset()
                         audio.stop()
-                        previous_error, previous_cue_error, error_streak = None, None, 0
                         descriptions = []
                     else:
-                        # Guest RAM may be mid-write; do not read stale state. A
-                        # failure is only read out once it has survived several
-                        # captures in a row, which drops the ones caused by a scene
-                        # being built.
-                        signature = type(error).__name__, str(error)
-                        error_streak = error_streak + 1 if signature == previous_error else 1
-                        previous_error = signature
-                        if error_streak == FAILURE_ANNOUNCE_TICKS:
-                            announce_failure(speech, logger, error)
+                        # Guest RAM may be mid-write; do not read stale state. The
+                        # failure opens an episode, which is reported once however
+                        # long it lasts and is closed by the first read that works.
+                        notice.failure('reading', error)
                         narration.reset(); reader.reset()
                         cues.reset()
                         audio.stop()
                         descriptions = []
             time.sleep(max(0, 0.08 - (time.monotonic() - tick)))
     except (DiagnosticError, OSError) as error:
-        announce_failure(speech, logger, error)
+        # Nothing can be read at all any more, so this is not a failure the assist
+        # waits out but the end of this run.
+        if notice is not None:
+            notice.fatal(error)
+        else:
+            logger.event('Fatal assistant error', error=str(error))
         return 1
     finally:
+        # Teardown is reported per area while there is still something to report
+        # it through, as the launcher version does.
+        if lifetime is not None:
+            try:
+                lifetime.close()
+            except DiagnosticError as error:
+                if notice is not None:
+                    notice.failure('process_shutdown', error)
         if audio is not None:
-            audio.stop()
+            try:
+                audio.stop()
+            except DiagnosticError as error:
+                if notice is not None:
+                    notice.failure('audio_shutdown', error)
