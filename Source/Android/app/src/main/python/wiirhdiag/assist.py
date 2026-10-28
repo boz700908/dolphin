@@ -324,7 +324,7 @@ def run(directory=None):
         cues = KungfuCueHandler(data.assist['kungfu_cues'])
         narration = NarrationHandler()
         paused, descriptions = False, []
-        speech.say('assist_ready')
+        channel.emit('ready', text=Loc.Get('gui_worker_ready'))
         while True:
             tick = time.monotonic()
             command = AssistRuntime.pollCommand()
