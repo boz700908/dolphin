@@ -35,6 +35,7 @@ import org.dolphinemu.dolphinemu.NativeLibrary
 import org.dolphinemu.dolphinemu.R
 import org.dolphinemu.dolphinemu.assist.AssistRuntime
 import org.dolphinemu.dolphinemu.assist.AssistSpeech
+import org.dolphinemu.dolphinemu.assist.AssistTts
 import org.dolphinemu.dolphinemu.databinding.ActivityEmulationBinding
 import org.dolphinemu.dolphinemu.databinding.DialogInputAdjustBinding
 import org.dolphinemu.dolphinemu.databinding.DialogNfcFiguresManagerBinding
@@ -570,6 +571,14 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
 
     // Gets button presses
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Keys reach the game through here whatever sent them: a controller over Bluetooth, a
+        // keyboard, a TV remote. The narration cuts in on the press itself, so it listens here
+        // rather than to any one device. The repeat of a held key is not a new press.
+        when (event.action) {
+            KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) AssistTts.noteInputDown()
+            KeyEvent.ACTION_UP -> AssistTts.noteInputUp()
+        }
+
         if (!menuVisible) {
             if (ControllerInterface.dispatchKeyEvent(event)) {
                 return true

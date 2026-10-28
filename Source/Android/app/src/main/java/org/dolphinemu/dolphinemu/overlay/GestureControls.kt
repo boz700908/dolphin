@@ -108,6 +108,7 @@ class GestureControls(private val controllerIndex: Int) {
             InputOverrider.clearControlState(controllerIndex, control)
 
         holdCounts.clear()
+        AssistTts.noteAllInputsReleased()
 
         if (registered) {
             InputOverrider.unregisterWii(controllerIndex)
@@ -211,9 +212,9 @@ class GestureControls(private val controllerIndex: Int) {
             InputOverrider.setControlState(controllerIndex, control, 1.0)
         }
 
-        // The narration cuts into whatever it is reading only when it was the player's own press
-        // that changed something.
-        AssistTts.noteUserInput()
+        // The narration tells a press from idle narration by these events alone, so every press is
+        // reported, whichever control it was.
+        AssistTts.noteInputDown()
     }
 
     private fun release(control: Int) {
@@ -226,6 +227,7 @@ class GestureControls(private val controllerIndex: Int) {
 
         holdCounts.remove(control)
         InputOverrider.clearControlState(controllerIndex, control)
+        AssistTts.noteInputUp()
     }
 
     /**

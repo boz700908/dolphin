@@ -22,6 +22,7 @@ import org.dolphinemu.dolphinemu.DolphinApplication
 import org.dolphinemu.dolphinemu.NativeLibrary
 import org.dolphinemu.dolphinemu.NativeLibrary.ButtonType
 import org.dolphinemu.dolphinemu.R
+import org.dolphinemu.dolphinemu.assist.AssistTts
 import org.dolphinemu.dolphinemu.features.input.model.InputMappingBooleanSetting
 import org.dolphinemu.dolphinemu.features.input.model.InputOverrider
 import org.dolphinemu.dolphinemu.features.input.model.InputOverrider.ControlId
@@ -141,6 +142,16 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) : SurfaceView(contex
         val gestures = gestureControls
         if (gestures != null) {
             return gestures.onTouchEvent(event, width, height, resources.displayMetrics.density)
+        }
+
+        // A finger on the overlay presses controls exactly as a controller does, and the narration
+        // judges what may cut in by what is held down, so it has to be told about both ends.
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN,
+            MotionEvent.ACTION_POINTER_DOWN -> AssistTts.noteInputDown()
+            MotionEvent.ACTION_UP,
+            MotionEvent.ACTION_POINTER_UP -> AssistTts.noteInputUp()
+            MotionEvent.ACTION_CANCEL -> AssistTts.noteAllInputsReleased()
         }
 
         val action = event.actionMasked
