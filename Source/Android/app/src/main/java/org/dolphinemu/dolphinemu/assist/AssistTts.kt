@@ -17,11 +17,14 @@ import java.util.Locale
  * posted to the main looper rather than awaited.
  *
  * What interrupts what is decided by the player's own input and by nothing else. Pressing a control
- * on the screen, on a controller, on a keyboard or on a remote is an event; while at least one such
- * control is held down, the messages the game reports are the answer to that press and cut into
- * whatever is being read. With nothing held, messages queue up behind each other so that each one
- * can be read to its end. Nothing here counts time: a press and the release that ends it are what
- * the narration listens to, rather than a window guessed at after the press.
+ * on the screen, on a controller, on a keyboard or on a remote is an event, and it cuts off whatever
+ * is being read the moment it happens: the sentence in progress describes a moment the press has
+ * just replaced, so it ends on the press itself rather than on the next message, whether or not the
+ * game has anything to say afterwards. While at least one control is held down, the messages the
+ * game reports are the answer to that press and cut in as well. With nothing held, messages queue up
+ * behind each other so that each one can be read to its end. Nothing here counts time: a press and
+ * the release that ends it are what the narration listens to, rather than a window guessed at after
+ * the press.
  *
  * Requests that arrive before the engine finishes initializing are held and spoken once, in order,
  * so the first announcement of a session is not lost.
@@ -125,6 +128,7 @@ object AssistTts {
     @JvmStatic
     fun noteInputDown() {
         heldInputs++
+        interrupt()
     }
 
     /**
@@ -219,6 +223,24 @@ object AssistTts {
         while (pending.isNotEmpty()) {
             speakNow(pending.removeFirst(), flush = pending.isEmpty())
         }
+    }
+
+    /**
+     * Ends whatever is being read, on the press itself.
+     *
+     * A press tells the player nothing on its own, so it is tempting to keep reading until the game
+     * answers it. That answer can take a moment, and in the meantime the old sentence carries on
+     * past the press as if the press had not happened -- which is the one thing a reader cannot
+     * check for themselves, since they cannot see what changed. Ending on the press is also what
+     * lets the answer, if one comes, arrive as the start of a sentence rather than the middle of
+     * the previous one.
+     */
+    private fun interrupt() {
+        val tts = engine ?: return
+        tts.stop()
+        // The engine reports the stop back through onStop, but the text is already stale: a report
+        // of the same state after the press has to be read again, not taken for a repeat.
+        speakingText = null
     }
 
     private fun speakNow(text: String, flush: Boolean = true) {
