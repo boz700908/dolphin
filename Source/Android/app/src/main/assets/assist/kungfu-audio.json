@@ -1,0 +1,40 @@
+{
+  "sources": {
+    "far": {
+      "path": "sounsd\\distance.ogg",
+      "sha256": "0d7c9bb69c85adee91e835d97cad8801f3bfc40bf13b9c5e3de04bcefdbcc4a9",
+      "rate": 44100,
+      "frames": 29514,
+      "seconds": 0.6692517006802721,
+      "source_rms": 0.0818662114807274,
+      "mono_rms": 0.0814789555180153
+    },
+    "near": {
+      "path": "sounsd\\approach.ogg",
+      "sha256": "5adb29bbb0df9957314df07a6e113adac8db71fe6cb6c75bdd32b3e96c35ffe2",
+      "rate": 44100,
+      "frames": 18400,
+      "seconds": 0.41723356009070295,
+      "source_rms": 0.10170970861728773,
+      "mono_rms": 0.10170970861728773
+    }
+  },
+  "assets": {
+    "far:1": {
+      "filename": "kungfu-far-p1.wav",
+      "sha256": "039f75047ea5ff9e21a14787f0cad106609b5ee187238c7cdb71d7abcd9c5605"
+    },
+    "far:2": {
+      "filename": "kungfu-far-p2.wav",
+      "sha256": "fe3da3ef40540f46ba18080da14e10f833fe14a595906c7d2c12e0be73b4b056"
+    },
+    "near:1": {
+      "filename": "kungfu-near-p1.wav",
+      "sha256": "24a1d0428fcef93d4fbab88c886d411f6ad22a5a4962ee2e2f599f9ca8864def"
+    },
+    "near:2": {
+      "filename": "kungfu-near-p2.wav",
+      "sha256": "987813823da9a5da1ded0910b2cfb4b450bda924bc67e2d66b7ef6385107ec0b"
+    }
+  }
+}

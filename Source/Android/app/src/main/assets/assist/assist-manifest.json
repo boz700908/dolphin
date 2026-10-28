@@ -1,0 +1,25 @@
+{
+  "files": {
+    "assist-profile.json": "bc31d1c3c8bbfc9adad59292dbd01194c69899ef5d57597d560466046d7e3cca",
+    "font.bin": "f87ce7f028e4209de0dc055b64702eaf1847becc60fd8089de0710f38419acc2",
+    "dual-selection-number.bin": "b23433c7a1a5f60563eb7356735e39f2654586532a32af732b11d8c5dcc2683f",
+    "selection-number.bin": "d8b751839e3d17981a60baafff1e3b084c25dfb62128fd79701a7740df7c4dda",
+    "selection-reveal.bin": "2f12d3b073d122e3c03a736884ccfed077af2f3f05fdb27b5519277d631746bc",
+    "dual-grading-font.bin": "35dbba27fc4a487d7c12512dadce9715878056a1adacd832a92f327f437b332d",
+    "endless-score-texture.bin": "366477a6b2e6916b16676e87b09acfdcb83a160e0acafe935ab2b7c9eef7d619",
+    "endless-permanent-texture.bin": "8ef6de5b35a0dbd15c80f70071129fc0390f61b722c37a7e325020f52b451b1c",
+    "lyric-font.bin": "955ebbb79d64563e24a1c7d0d1ba3693d4d4661dc0bbd882e80c23f534d848b9",
+    "hihat-texture.bin": "e21b828aca38a7ed852701c16f3e06dcc2834a62ff6681dae2b2432eebda969b",
+    "karate-ver0-texture.bin": "79fbaf65da539d7ac3876f6b9cad55c09bf32228f739c32bb7923b1b059e486a",
+    "karate-ver1-texture.bin": "1216b63347956d2e7c34f9c5942229fd81a3eacc412e6bec95386ce1f3d15e5c",
+    "karate-2play-texture.bin": "ea4a628e3638fbc3e3f1e50cf87a1847f460e00c93393487e21e631920957c81",
+    "karate-remix07-texture.bin": "84296e928278a82aedf745de2cb44cf9eface3125492f24fbc4bd75dd4c4ec60",
+    "karate-remix09-texture.bin": "731093304c2391f4cc4a1481bc4dd505fa03536c0a1daccffc6acd693dbc5bd6",
+    "karate-remix10-texture.bin": "79fbaf65da539d7ac3876f6b9cad55c09bf32228f739c32bb7923b1b059e486a",
+    "kungfu-audio.json": "1201c1e3d18d26f8bba81e03bcd94e18bebfed126240b580a5923cb53e7730ad",
+    "kungfu-far-p1.wav": "039f75047ea5ff9e21a14787f0cad106609b5ee187238c7cdb71d7abcd9c5605",
+    "kungfu-far-p2.wav": "fe3da3ef40540f46ba18080da14e10f833fe14a595906c7d2c12e0be73b4b056",
+    "kungfu-near-p1.wav": "24a1d0428fcef93d4fbab88c886d411f6ad22a5a4962ee2e2f599f9ca8864def",
+    "kungfu-near-p2.wav": "987813823da9a5da1ded0910b2cfb4b450bda924bc67e2d66b7ef6385107ec0b"
+  }
+}

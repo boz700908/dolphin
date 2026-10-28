@@ -1,0 +1,7 @@
+{
+  "scope": "Build-time artifact integrity, not an authenticity signature",
+  "files": {
+    "profile.json": "49f03ea5c4e19e6642e6e68224c72505223b45b21e66b7409d8dff4b72b8358c",
+    "chinese-glyph-map.json": "8da1c01e381f7c6cbfcde3471ae02530c0834522fb5db183913de5fcc866f3db"
+  }
+}

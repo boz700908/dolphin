@@ -65,6 +65,8 @@ import org.dolphinemu.dolphinemu.features.settings.model.view.SingleChoiceSettin
 import org.dolphinemu.dolphinemu.features.settings.model.view.StringSingleChoiceSetting
 import org.dolphinemu.dolphinemu.features.settings.model.view.SubmenuSetting
 import org.dolphinemu.dolphinemu.features.settings.model.view.SwitchSetting
+import org.dolphinemu.dolphinemu.assist.AssistSpeech
+import org.dolphinemu.dolphinemu.overlay.GestureControls
 import org.dolphinemu.dolphinemu.model.GpuDriverMetadata
 import org.dolphinemu.dolphinemu.utils.BooleanSupplier
 import org.dolphinemu.dolphinemu.utils.EGLHelper
@@ -502,6 +504,70 @@ class SettingsFragmentPresenter(
                 BooleanSetting.MAIN_TIME_TRACKING,
                 R.string.time_tracking,
                 R.string.time_tracking_description
+            )
+        )
+
+        val gestureControls: AbstractBooleanSetting = object : AbstractBooleanSetting {
+            override val isOverridden: Boolean
+                get() = gestureControlsEnabled
+
+            // This only affects the in-game touch layer, nothing is stored in the game config
+            override val isRuntimeEditable: Boolean = true
+
+            private val gestureControlsEnabled: Boolean
+                get() = GestureControls.isEnabled(context)
+
+            override fun delete(settings: Settings): Boolean {
+                GestureControls.setEnabled(context, false)
+                return true
+            }
+
+            override val boolean: Boolean
+                get() = gestureControlsEnabled
+
+            override fun setBoolean(settings: Settings, newValue: Boolean) {
+                GestureControls.setEnabled(context, newValue)
+            }
+        }
+
+        sl.add(
+            SwitchSetting(
+                context,
+                gestureControls,
+                R.string.gesture_controls,
+                R.string.gesture_controls_description
+            )
+        )
+
+        val assistSpeech: AbstractBooleanSetting = object : AbstractBooleanSetting {
+            override val isOverridden: Boolean
+                get() = assistSpeechEnabled
+
+            // Only affects the running overlay, nothing is stored in the game config
+            override val isRuntimeEditable: Boolean = true
+
+            private val assistSpeechEnabled: Boolean
+                get() = AssistSpeech.isEnabled(context)
+
+            override fun delete(settings: Settings): Boolean {
+                AssistSpeech.setEnabled(context, false)
+                return true
+            }
+
+            override val boolean: Boolean
+                get() = assistSpeechEnabled
+
+            override fun setBoolean(settings: Settings, newValue: Boolean) {
+                AssistSpeech.setEnabled(context, newValue)
+            }
+        }
+
+        sl.add(
+            SwitchSetting(
+                context,
+                assistSpeech,
+                R.string.assist_speech,
+                R.string.assist_speech_description
             )
         )
 

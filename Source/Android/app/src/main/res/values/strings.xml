@@ -2,7 +2,7 @@
 <resources>
 
     <!-- Title of the app -->
-    <string name="app_name">Dolphin Emulator</string>
+    <string name="app_name">みんなのリズム天国</string>
     <string name="host">app</string>
     <string name="scheme">dolphinemu</string>
 
@@ -1068,4 +1068,22 @@ It can efficiently compress both junk data and encrypted Wii data.
     <string name="netplay_transfer_progress">%1$s/%2$s MiB</string>
     <string name="netplay_local_network_permission_info">Dolphin needs permission to connect to devices on a local network. If you only want to use netplay over the internet, the permission is not required.</string>
     <string name="netplay_give_permission">Give permission</string>
+
+    <!-- Game launcher front end -->
+    <string name="launcher_launch">Launch</string>
+    <string name="launcher_settings">Settings</string>
+    <string name="launcher_installing_game">Installing game data… %1$d%%</string>
+    <string name="launcher_preparing">Preparing game…</string>
+    <string name="launcher_install_failed">Could not install the bundled game: %1$s</string>
+    <string name="launcher_not_enough_space">Not enough free storage to install the bundled game. Free up about %1$d MB and try again.</string>
+
+    <string name="assist_menu_repeat">Read again</string>
+    <string name="assist_menu_description">Read level description</string>
+    <string name="assist_menu_pause">Pause or resume reading</string>
+    <string name="assist_menu_stop">Turn screen reader off</string>
+    <string name="launcher_installing_assist">Installing screen reader data… %1$d%%</string>
+    <string name="assist_speech">Screen reader</string>
+    <string name="assist_speech_description">Speak the Chinese text the game is showing, using the system text-to-speech engine. Menus, titles, prompts and results are read out as they appear. Requires a Chinese voice to be installed.</string>
+    <string name="gesture_controls">Gesture controls</string>
+    <string name="gesture_controls_description">Use the whole screen for the d-pad, A, B, 1, 2, + and - instead of the on-screen buttons. Drag in a direction to press it while the finger is still down, press the left or right half for A or B, and tap a corner for 1, 2, - or +. Turns all other touch input off.</string>
 </resources>

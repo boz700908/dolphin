@@ -112,6 +112,26 @@
                 style="@style/InGameMenuOption" />
 
             <Button
+                android:id="@+id/menu_assist_repeat"
+                style="@style/InGameMenuOption"
+                android:text="@string/assist_menu_repeat" />
+
+            <Button
+                android:id="@+id/menu_assist_description"
+                style="@style/InGameMenuOption"
+                android:text="@string/assist_menu_description" />
+
+            <Button
+                android:id="@+id/menu_assist_pause"
+                style="@style/InGameMenuOption"
+                android:text="@string/assist_menu_pause" />
+
+            <Button
+                android:id="@+id/menu_assist_stop"
+                style="@style/InGameMenuOption"
+                android:text="@string/assist_menu_stop" />
+
+            <Button
                 android:id="@+id/menu_reset"
                 style="@style/InGameMenuOption"
                 android:text="@string/emulation_reset" />

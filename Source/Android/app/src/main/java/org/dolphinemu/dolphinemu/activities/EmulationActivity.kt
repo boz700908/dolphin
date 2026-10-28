@@ -33,6 +33,8 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.slider.Slider
 import org.dolphinemu.dolphinemu.NativeLibrary
 import org.dolphinemu.dolphinemu.R
+import org.dolphinemu.dolphinemu.assist.AssistRuntime
+import org.dolphinemu.dolphinemu.assist.AssistSpeech
 import org.dolphinemu.dolphinemu.databinding.ActivityEmulationBinding
 import org.dolphinemu.dolphinemu.databinding.DialogInputAdjustBinding
 import org.dolphinemu.dolphinemu.databinding.DialogNfcFiguresManagerBinding
@@ -319,6 +321,12 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
         }
 
         DolphinSensorEventListener.setDeviceRotation(windowManager.defaultDisplay.rotation)
+
+        if (AssistSpeech.isEnabled(this)) {
+            AssistRuntime.start(this)
+        } else {
+            AssistRuntime.stop()
+        }
     }
 
     override fun onStop() {
@@ -347,6 +355,7 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
 
     override fun onDestroy() {
         super.onDestroy()
+        AssistRuntime.shutdown()
         settings.close()
     }
 
@@ -526,6 +535,17 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
             MENU_ACTION_INFINITY_BASE -> showInfinityBaseSettings()
             MENU_ACTION_EXIT -> emulationFragment!!.stopEmulation()
             MENU_ACTION_RESET -> emulationFragment!!.resetEmulation()
+            MENU_ACTION_ASSIST_REPEAT -> AssistRuntime.pushCommand(AssistRuntime.COMMAND_REPEAT)
+            MENU_ACTION_ASSIST_DESCRIPTION ->
+                AssistRuntime.pushCommand(AssistRuntime.COMMAND_DESCRIPTION)
+            MENU_ACTION_ASSIST_PAUSE -> AssistRuntime.pushCommand(AssistRuntime.COMMAND_PAUSE)
+            // Turning the reader off from here is the same thing the settings switch
+            // does, so the two cannot drift apart. Pausing is what silences the
+            // reader without leaving this screen.
+            MENU_ACTION_ASSIST_STOP -> {
+                AssistSpeech.setEnabled(this, false)
+                AssistRuntime.stop()
+            }
         }
     }
 
@@ -1085,7 +1105,11 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
         const val MENU_ACTION_SKYLANDERS = 36
         const val MENU_ACTION_INFINITY_BASE = 37
         const val MENU_ACTION_LATCHING_CONTROLS = 38
-        const val MENU_ACTION_RESET = 39;
+        const val MENU_ACTION_RESET = 39
+        const val MENU_ACTION_ASSIST_REPEAT = 40
+        const val MENU_ACTION_ASSIST_DESCRIPTION = 41
+        const val MENU_ACTION_ASSIST_PAUSE = 42
+        const val MENU_ACTION_ASSIST_STOP = 43
 
         init {
             buttonsActionsMap.apply {

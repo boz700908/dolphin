@@ -8,7 +8,7 @@ import android.util.Log
 import androidx.fragment.app.FragmentActivity
 import org.dolphinemu.dolphinemu.model.GameFile
 import org.dolphinemu.dolphinemu.services.GameFileCacheManager
-import org.dolphinemu.dolphinemu.ui.main.TvMainActivity
+import org.dolphinemu.dolphinemu.launcher.LauncherActivity
 import org.dolphinemu.dolphinemu.utils.AfterDirectoryInitializationRunner
 import org.dolphinemu.dolphinemu.utils.AppLinkHelper
 import org.dolphinemu.dolphinemu.utils.AppLinkHelper.PlayAction
@@ -66,7 +66,7 @@ class AppLinkActivity : FragmentActivity() {
      * Action if channel icon is selected
      */
     private fun browse() {
-        val openApp = Intent(this, TvMainActivity::class.java)
+        val openApp = Intent(this, LauncherActivity::class.java)
         startActivity(openApp)
 
         finish()

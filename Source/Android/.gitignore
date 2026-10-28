@@ -14,8 +14,17 @@
 /libs/
 /obj/
 
-# Copied by cmake
-*/*/*/assets/
+# Copied by cmake. This fork ships real content in app/src/main/assets (the
+# bundled game image and the screen reader data), so that directory is tracked
+# through Git LFS instead of being ignored.
+!*/*/*/assets/
+!*/*/*/assets/**
+# Python bytecode from Chaquopy and local runs.
+__pycache__/
+*.pyc
+
+# The bundled game image is a release asset, fetched by fetch-bundled-asset.sh.
+/app/src/main/assets/*.wbfs
 
 # Local configuration file (sdk path, etc)
 local.properties

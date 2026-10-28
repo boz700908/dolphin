@@ -18,6 +18,7 @@ import com.google.android.material.elevation.ElevationOverlayProvider
 import org.dolphinemu.dolphinemu.NativeLibrary
 import org.dolphinemu.dolphinemu.R
 import org.dolphinemu.dolphinemu.activities.EmulationActivity
+import org.dolphinemu.dolphinemu.assist.AssistSpeech
 import org.dolphinemu.dolphinemu.databinding.FragmentIngameMenuBinding
 import org.dolphinemu.dolphinemu.features.settings.model.AchievementModel
 import org.dolphinemu.dolphinemu.features.settings.model.BooleanSetting
@@ -68,6 +69,13 @@ class MenuFragment : Fragment(), View.OnClickListener {
 
         if (!BooleanSetting.MAIN_EMULATE_INFINITY_BASE.boolean) {
             binding.menuInfinityBase.visibility = View.GONE
+        }
+
+        if (!AssistSpeech.isEnabled(requireContext())) {
+            binding.menuAssistRepeat.visibility = View.GONE
+            binding.menuAssistDescription.visibility = View.GONE
+            binding.menuAssistPause.visibility = View.GONE
+            binding.menuAssistStop.visibility = View.GONE
         }
 
         val options = binding.layoutOptions
@@ -206,6 +214,22 @@ class MenuFragment : Fragment(), View.OnClickListener {
             buttonsActionsMap.append(
                 R.id.menu_infinity_base,
                 EmulationActivity.MENU_ACTION_INFINITY_BASE
+            )
+            buttonsActionsMap.append(
+                R.id.menu_assist_repeat,
+                EmulationActivity.MENU_ACTION_ASSIST_REPEAT
+            )
+            buttonsActionsMap.append(
+                R.id.menu_assist_description,
+                EmulationActivity.MENU_ACTION_ASSIST_DESCRIPTION
+            )
+            buttonsActionsMap.append(
+                R.id.menu_assist_pause,
+                EmulationActivity.MENU_ACTION_ASSIST_PAUSE
+            )
+            buttonsActionsMap.append(
+                R.id.menu_assist_stop,
+                EmulationActivity.MENU_ACTION_ASSIST_STOP
             )
         }
 

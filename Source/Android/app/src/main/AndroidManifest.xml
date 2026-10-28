@@ -32,6 +32,14 @@
     <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
 
+    <!-- Speech output goes through the system text-to-speech engine, which
+         package visibility rules hide from us unless it is declared here. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE"/>
+        </intent>
+    </queries>
+
     <application
         android:name=".DolphinApplication"
         android:label="@string/app_name_suffixed"
@@ -54,28 +62,17 @@
             tools:targetApi="29" />
 
         <activity
-            android:name=".ui.main.MainActivity"
+            android:name=".launcher.LauncherActivity"
             android:exported="true"
             android:theme="@style/Theme.Dolphin.Splash.Main">
 
-            <!-- This intentfilter marks this Activity as the one that gets launched from Home screen. -->
+            <!-- This Activity is the launcher: one game, a launch button and a settings button.
+                 The same screen serves phones and Android TV, so both launcher categories apply. -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-
-        <activity
-            android:name=".ui.main.TvMainActivity"
-            android:exported="true"
-            android:theme="@style/Theme.Dolphin.Splash.TV">
-
-            <!-- This intentfilter marks this Activity as the one that gets launched from Home screen. -->
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-
-                <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
 

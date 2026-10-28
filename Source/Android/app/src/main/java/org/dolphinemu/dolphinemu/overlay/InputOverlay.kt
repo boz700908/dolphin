@@ -54,6 +54,7 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) : SurfaceView(contex
     var editMode = false
     private var controllerType = -1
     private var controllerIndex = 0
+    private var gestureControls: GestureControls? = null
     private var buttonBeingConfigured: InputOverlayDrawableButton? = null
     private var dpadBeingConfigured: InputOverlayDrawableDpad? = null
     private var joystickBeingConfigured: InputOverlayDrawableJoystick? = null
@@ -134,6 +135,12 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) : SurfaceView(contex
     override fun onTouch(v: View, event: MotionEvent): Boolean {
         if (editMode) {
             return onTouchWhileEditing(event)
+        }
+
+        // With the gesture layer on it owns the whole screen, and no other touch input applies.
+        val gestures = gestureControls
+        if (gestures != null) {
+            return gestures.onTouchEvent(event, width, height, resources.displayMetrics.density)
         }
 
         val action = event.actionMasked
@@ -984,6 +991,11 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) : SurfaceView(contex
     }
 
     fun refreshControls() {
+        // Release anything the gesture layer is holding before the controllers are rebuilt, so no
+        // button can stay pressed across a rotation, a pause or a settings change.
+        gestureControls?.releaseAll()
+        gestureControls = null
+
         unregisterControllers()
 
         // Remove all the overlay buttons from the HashSet.
@@ -1050,6 +1062,12 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) : SurfaceView(contex
         }
 
         isFirstRun = false
+
+        // Set up the gesture layer last, once the controller index is known.
+        if (GestureControls.isEnabled(context) && NativeLibrary.IsEmulatingWii()) {
+            gestureControls = GestureControls(controllerIndex - 4)
+        }
+
         invalidate()
     }
 

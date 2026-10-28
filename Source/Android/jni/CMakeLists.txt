@@ -1,5 +1,6 @@
 add_library(main SHARED
   AchievementAdapter.cpp
+  AssistBridge.cpp
   ActivityTracker.cpp
   Cheats/ARCheat.cpp
   Cheats/Cheats.h

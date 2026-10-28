@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.androidx.baselineprofile)
+    alias(libs.plugins.chaquopy)
 }
 
 @Suppress("UnstableApiUsage")
@@ -36,13 +37,17 @@ android {
     }
 
     defaultConfig {
-        applicationId = "org.dolphinemu.dolphinemu"
+        // This build is a single-game launcher, so it must be installable
+        // alongside a regular Dolphin build. Only the application ID changes:
+        // the Java package (= namespace) stays org.dolphinemu.dolphinemu, so
+        // the JNI symbol names in Source/Android/jni keep matching.
+        applicationId = "com.boz700908.minnanorhythm"
         minSdk = 24
         targetSdk = 37
 
-        versionCode = getBuildVersionCode()
+        versionCode = 1
 
-        versionName = getGitVersion()
+        versionName = "1.0"
 
         buildConfigField("String", "GIT_HASH", "\"${getGitHash()}\"")
         buildConfigField("String", "BRANCH", "\"${getBranch()}\"")
@@ -69,7 +74,7 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             }
 
-            resValue("string", "app_name_suffixed", "Dolphin Emulator")
+            resValue("string", "app_name_suffixed", "\u307f\u3093\u306a\u306e\u30ea\u30ba\u30e0\u5929\u56fd")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -79,11 +84,11 @@ android {
         }
 
         // Signed by debug key disallowing distribution on Play Store.
-        // Attaches "debug" suffix to version and package name, allowing installation alongside the release build.
+        // No application ID or version suffix: this fork is a single-game
+        // launcher and a debug build has to look like the final product, both
+        // in the app list and in the version string.
         debug {
-            resValue("string", "app_name_suffixed", "Dolphin Debug")
-            applicationIdSuffix = ".debug"
-            versionNameSuffix = "-debug"
+            resValue("string", "app_name_suffixed", "\u307f\u3093\u306a\u306e\u30ea\u30ba\u30e0\u5929\u56fd")
             isJniDebuggable = true
         }
     }
@@ -120,6 +125,19 @@ android {
 
     packaging {
         jniLibs.useLegacyPackaging = true
+    }
+}
+
+// The Chinese rhythm-game narration runs as Python inside this process, so it
+// can read guest RAM directly instead of talking to a separate program.
+chaquopy {
+    defaultConfig {
+        // Same minor version as the code was written and tested against.
+        version = "3.12"
+
+        // Only the standard library is used; no third-party packages are
+        // installed, so no pip repositories are configured here.
+        buildPython("python3")
     }
 }
 
@@ -172,48 +190,6 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
 
     implementation(libs.accompanist)
-}
-
-fun getGitVersion(): String {
-    try {
-        return ProcessBuilder("git", "describe", "--always", "--long")
-            .directory(project.rootDir)
-            .redirectOutput(ProcessBuilder.Redirect.PIPE)
-            .redirectError(ProcessBuilder.Redirect.PIPE)
-            .start().inputStream.bufferedReader().use { it.readText() }
-            .trim()
-            .replace(Regex("(-0)?-[^-]+$"), "")
-    } catch (e: Exception) {
-        logger.error("Cannot find git, defaulting to dummy version number")
-    }
-
-    return "0.0"
-}
-
-fun getBuildVersionCode(): Int {
-    try {
-        val commitCount = Integer.valueOf(
-            ProcessBuilder("git", "rev-list", "--first-parent", "--count", "HEAD")
-                .directory(project.rootDir)
-                .redirectOutput(ProcessBuilder.Redirect.PIPE)
-                .redirectError(ProcessBuilder.Redirect.PIPE)
-                .start().inputStream.bufferedReader().use { it.readText() }
-                .trim()
-        )
-
-        val isRelease = ProcessBuilder("git", "describe", "--exact-match", "HEAD")
-            .directory(project.rootDir)
-            .redirectOutput(ProcessBuilder.Redirect.PIPE)
-            .redirectError(ProcessBuilder.Redirect.PIPE)
-            .start()
-            .waitFor() == 0
-
-        return commitCount * 2 + (if (isRelease) 0 else 1)
-    } catch (e: Exception) {
-        logger.error("Cannot find git, defaulting to dummy version code")
-    }
-
-    return 1
 }
 
 fun getGitHash(): String {

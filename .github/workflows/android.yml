@@ -1,0 +1,125 @@
+# Builds the Android app. Upstream Dolphin has no GitHub Actions at all, so this
+# workflow exists only in this fork, which turns the emulator into a launcher
+# for a single bundled game.
+name: Android
+
+on:
+  push:
+    branches: ["master", "minnanorhythm"]
+    paths-ignore: ["**/*.md", "Data/**", "docs/**"]
+  pull_request:
+    paths-ignore: ["**/*.md", "Data/**", "docs/**"]
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: "Build variant"
+        type: choice
+        options: [debug, release]
+        default: debug
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned to what Source/Android/app/build.gradle.kts asks for:
+  # compileSdk 37, ndkVersion 30.0.15729638, CMake 3.25.0+; Gradle 9.6.1.
+  NDK_VERSION: 30.0.15729638
+  CMAKE_VERSION: 3.31.6
+  BUILD_TOOLS_VERSION: 37.0.0
+  PLATFORM_VERSION: android-37.0
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager --install \
+            "platforms;${PLATFORM_VERSION}" \
+            "build-tools;${BUILD_TOOLS_VERSION}" \
+            "ndk;${NDK_VERSION}" \
+            "cmake;${CMAKE_VERSION}" \
+            "platform-tools"
+
+      # The game image the app bundles is a release asset, not part of the Git
+      # history, so it has to be pulled in before Gradle packages the APK.
+      - name: Fetch the bundled game image
+        run: Source/Android/fetch-bundled-asset.sh
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('Source/Android/**/*.gradle.kts', 'Source/Android/gradle/libs.versions.toml', 'Source/Android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Cache the native build
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-${{ github.sha }}
+          restore-keys: ccache-${{ runner.os }}-
+
+      - name: Configure the build
+        run: |
+          set -e
+          # The checked-in 2 GiB heap is sized for a workstation. This app also
+          # carries ~490 MiB of assets, so give the packagers some headroom.
+          sed -i 's|^org.gradle.jvmargs=.*|org.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=2g -Dfile.encoding=UTF-8|' \
+            Source/Android/gradle.properties
+          echo "sdk.dir=${ANDROID_HOME}" > Source/Android/local.properties
+
+      - name: Build
+        working-directory: Source/Android
+        run: |
+          set -o pipefail
+          VARIANT="${{ github.event.inputs.variant || 'debug' }}"
+          ./gradlew --stacktrace "assemble${VARIANT^}" 2>&1 | tee gradle-build.log
+
+      - name: Collect the APK
+        run: |
+          set -e
+          mkdir -p artifacts
+          find Source/Android/app/build/outputs/apk -name "*.apk" -print -exec cp {} artifacts/ \;
+          ls -lh artifacts
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-${{ github.event.inputs.variant || 'debug' }}
+          path: artifacts/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload the build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-build-log
+          path: Source/Android/gradle-build.log
+          if-no-files-found: ignore
+          retention-days: 7
