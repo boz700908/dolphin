@@ -35,6 +35,13 @@ object AssistTts {
     /** How many pre-initialization messages are kept; the oldest go first. */
     private const val PENDING_LIMIT = 8
 
+    /**
+     * How long after a press messages still count as the result of it. Speech only cuts itself
+     * off inside this window; narration nobody asked for waits its turn instead of chopping what
+     * is being read.
+     */
+    private const val INPUT_INTERRUPT_MS = 1500L
+
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var engine: TextToSpeech? = null
@@ -52,6 +59,9 @@ object AssistTts {
     // restarted over and over.
     private var lastText: String? = null
     private var lastTime = 0L
+
+    // When the player last pressed a control, in uptime milliseconds.
+    private var lastInputTime = 0L
 
     /**
      * Starts the engine now if it was not started yet.
@@ -112,8 +122,19 @@ object AssistTts {
                 return@post
             }
 
-            speakNow(text)
+            // A message right after a press is the answer to it, so it interrupts; anything
+            // else is narration that has to be allowed to finish.
+            speakNow(text, flush = now - lastInputTime < INPUT_INTERRUPT_MS)
         }
+    }
+
+    /**
+     * Records that the player pressed a control. Called from the touch layer, which also runs on
+     * the main thread.
+     */
+    @JvmStatic
+    fun noteUserInput() {
+        lastInputTime = android.os.SystemClock.uptimeMillis()
     }
 
     /**
