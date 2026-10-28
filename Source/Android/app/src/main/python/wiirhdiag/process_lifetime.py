@@ -26,16 +26,12 @@ class ProcessLifetimeHandler:
 class GameConnectionHandler:
     '''Publish connected, exited and waiting states to the reading loop.'''
 
-    def __init__(self, lifetime, speech, logger, notice):
+    def __init__(self, lifetime, channel, logger, notice):
         self._lifetime = lifetime
-        self._speech = speech
+        self._channel = channel
         self._logger = logger
         self._notice = notice
         self._state = None
-
-    def _speak(self, text):
-        if self._speech is not None:
-            self._speech.say('assist_text', text=text)
 
     def attach(self, pid):
         '''Report whether this verified capture establishes a new connection.'''
@@ -52,10 +48,10 @@ class GameConnectionHandler:
         self._lifetime.close()
         self._state = 'waiting'
         # An emulator that has ended is expected to be absent, so whatever was
-        # being reported about it is over and is not spoken of again.
+        # being reported about it is over and is not raised again.
         self._notice.cancel()
         self._logger.event('Attached game ended')
-        self._speak(Loc.Get('gui_waiting_game'))
+        self._channel.emit('emulator_exited', text=Loc.Get('gui_waiting_game'))
         return True
 
     def waiting(self):
@@ -65,5 +61,5 @@ class GameConnectionHandler:
             return False
         self._state = 'waiting'
         self._logger.event('Waiting for game')
-        self._speak(Loc.Get('gui_waiting_game'))
+        self._channel.emit('waiting_game', text=Loc.Get('gui_waiting_game'))
         return True

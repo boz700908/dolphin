@@ -14,6 +14,7 @@ import time
 
 from .bridge import AssistRuntime
 from .data import DiagnosticData
+from .channel import ChannelHandler
 from .errors import DiagnosticError
 from .font import FontHandler
 from .layout import LayoutHandler
@@ -290,6 +291,9 @@ def run(directory=None):
     package keeps the module runnable outside the app, against a staged copy.
     """
     logger = DebugLogger()
+    # The window the launcher version reported through has no counterpart here,
+    # so its messages go to the app log.
+    channel = ChannelHandler()
     speech, audio, cues, kungfu_state = None, None, None, None
     notice, notice_audio, lifetime = None, None, None
     try:
@@ -307,7 +311,7 @@ def run(directory=None):
         except (DiagnosticError, OSError) as error:
             logger.event('Notification tone unavailable', error=str(error))
         notice = DiagnosticNoticeHandler(
-            speech, logger,
+            channel, logger,
             None if notice_audio is None else (lambda: notice_audio.play(0, 'notice')))
         audio = AudioHandler(data.audio_directory, data.assist['kungfu_audio'])
         # The cue sounds live next to the data files; the platform loads them
@@ -315,7 +319,7 @@ def run(directory=None):
         AssistRuntime.prepareCues(str(data.audio_directory))
         memory, reader = MemoryHandler(data, logger), ReadingHandler(data)
         lifetime = ProcessLifetimeHandler()
-        connection = GameConnectionHandler(lifetime, speech, logger, notice)
+        connection = GameConnectionHandler(lifetime, channel, logger, notice)
         kungfu_state = KungfuStateHandler(data, flows=True)
         cues = KungfuCueHandler(data.assist['kungfu_cues'])
         narration = NarrationHandler()
@@ -371,6 +375,8 @@ def run(directory=None):
                         cues.reset()
                         audio.stop()
                         speech.say('assist_attached')
+                        channel.emit('attached', text=Loc.Get('assist_attached'),
+                                     pid=metadata['pid'])
                     observed = None
                     try:
                         observed = kungfu_state.inspect(snapshot)
