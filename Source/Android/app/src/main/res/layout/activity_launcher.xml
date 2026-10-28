@@ -7,37 +7,78 @@
     android:background="?attr/colorSurface"
     android:padding="@dimen/spacing_large">
 
-    <!-- Game art. Filled from the emulator's own game parser: the banner image embedded in the
-         disc, or the cover the emulator would show in its library. -->
-    <ImageView
-        android:id="@+id/image_cover"
+    <!-- The game's artwork, presented as the library's grid cell presents it: the same cover in the
+         same proportion (115x161, a Wii cover) with the same corner radius, and the title drawn
+         over it instead of under it when the library is set not to show titles. -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/card_game_art"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:adjustViewBounds="false"
-        android:contentDescription="@string/launcher_launch"
-        android:scaleType="fitCenter"
-        android:src="@drawable/no_banner"
+        app:cardCornerRadius="4dp"
         app:layout_constraintBottom_toTopOf="@id/text_title"
-        app:layout_constraintDimensionRatio="H,16:9"
+        app:layout_constraintDimensionRatio="H,115:161"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintVertical_bias="0.35" />
+        app:layout_constraintVertical_bias="0.0"
+        app:layout_constraintWidth_percent="0.55">
 
-    <!-- Game title, taken from the emulator's own disc parser. -->
+        <ImageView
+            android:id="@+id/image_cover"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@string/launcher_launch"
+            android:scaleType="fitCenter"
+            android:src="@drawable/no_banner" />
+
+        <TextView
+            android:id="@+id/text_title_inner"
+            style="@android:style/TextAppearance.Material.Subhead"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:ellipsize="end"
+            android:gravity="center|top"
+            android:maxLines="2"
+            android:paddingLeft="2dp"
+            android:paddingTop="8dp"
+            android:paddingRight="2dp"
+            android:text="@string/app_name_suffixed"
+            android:visibility="gone" />
+
+    </androidx.cardview.widget.CardView>
+
+    <!-- The title, as the library's grid cell shows it. -->
     <TextView
         android:id="@+id/text_title"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/spacing_large"
+        android:layout_marginTop="@dimen/spacing_medlarge"
+        android:ellipsize="end"
         android:gravity="center"
         android:maxLines="2"
         android:text="@string/app_name_suffixed"
         android:textAppearance="?attr/textAppearanceHeadlineSmall"
+        app:layout_constraintBottom_toTopOf="@id/text_caption"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/card_game_art" />
+
+    <!-- The line under the title in the grid: who made the game, or which disc this is. -->
+    <TextView
+        android:id="@+id/text_caption"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/spacing_small"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:maxLines="1"
+        android:textAppearance="?attr/textAppearanceBodyMedium"
+        android:textColor="?attr/colorOnSurfaceVariant"
+        android:visibility="gone"
         app:layout_constraintBottom_toTopOf="@id/button_launch"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/image_cover" />
+        app:layout_constraintTop_toBottomOf="@id/text_title" />
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/button_launch"
@@ -50,7 +91,7 @@
         app:layout_constraintBottom_toTopOf="@id/button_settings"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/text_title" />
+        app:layout_constraintTop_toBottomOf="@id/text_caption" />
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/button_settings"

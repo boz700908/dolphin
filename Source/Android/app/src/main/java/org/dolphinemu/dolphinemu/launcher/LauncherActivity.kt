@@ -299,9 +299,38 @@ class LauncherActivity : AppCompatActivity(), ThemeProvider {
         val title = game.getTitle()
         if (title.isNotEmpty()) {
             binding.textTitle.text = title
+            binding.textTitleInner.text = title
+        }
+
+        // The grid can be set to draw the title over the artwork and nothing else, so follow it:
+        // what this screen says about the game is whatever the grid would say about it.
+        val showTitles = try {
+            BooleanSetting.MAIN_SHOW_GAME_TITLES.boolean
+        } catch (e: Exception) {
+            true
+        }
+
+        binding.textTitle.visibility = if (showTitles) View.VISIBLE else View.GONE
+        binding.textTitleInner.visibility = if (showTitles) View.GONE else View.VISIBLE
+        binding.textCaption.visibility = if (showTitles) View.VISIBLE else View.GONE
+
+        if (showTitles) {
+            showGameCaption(game)
         }
 
         showGameArt(game)
+    }
+
+    /** The line the grid puts under a title: the company, or the disc number of a multi-disc game. */
+    private fun showGameCaption(game: GameFile) {
+        val caption = if (GameFileCacheManager.findSecondDisc(game) != null) {
+            getString(R.string.disc_number, game.getDiscNumber() + 1)
+        } else {
+            game.getCompany()
+        }
+
+        binding.textCaption.text = caption
+        binding.textCaption.visibility = if (caption.isEmpty()) View.GONE else View.VISIBLE
     }
 
     /**
