@@ -167,15 +167,19 @@ object AssistTts {
             }
         })
 
+        // Everything collected before the engine existed is spoken now. Only the
+        // first one flushes: flushing the rest would leave just the last audible.
         while (pending.isNotEmpty()) {
-            speakNow(pending.removeFirst())
+            speakNow(pending.removeFirst(), flush = pending.isEmpty())
         }
     }
 
-    private fun speakNow(text: String) {
+    private fun speakNow(text: String, flush: Boolean = true) {
         val tts = engine ?: return
-        // QUEUE_FLUSH: say this now, drop whatever is still speaking.
-        val result = tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+        // QUEUE_FLUSH: say this now, drop whatever is still speaking, because a
+        // message that is still being read describes a moment that has passed.
+        val mode = if (flush) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+        val result = tts.speak(text, mode, null, null)
         if (result != TextToSpeech.SUCCESS) {
             Log.w(TAG, "Speak rejected ($result): $text")
         }
