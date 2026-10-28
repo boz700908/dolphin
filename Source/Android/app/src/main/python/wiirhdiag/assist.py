@@ -281,6 +281,13 @@ COMMAND_REPEAT = 'repeat'
 COMMAND_DESCRIPTION = 'description'
 
 
+# How many consecutive captures must fail before the failure is read out. Guest
+# RAM is read while the game may be rebuilding it, so a scene transition can
+# fail for a frame or two; reporting those made the narrator announce errors at
+# the title screen and at the level title card that were gone by the next frame.
+FAILURE_ANNOUNCE_TICKS = 3
+
+
 def announce_failure(speech, logger, error):
     """Log every external failure and read it out when speech is available."""
     logger.event('Assist failed', error=str(error), key=getattr(error, 'key', None),
@@ -312,7 +319,7 @@ def run(directory=None):
         kungfu_state = KungfuStateHandler(data, flows=True)
         cues = KungfuCueHandler(data.assist['kungfu_cues'])
         narration = NarrationHandler()
-        previous_error, previous_cue_error = None, None
+        previous_error, previous_cue_error, error_streak = None, None, 0
         paused, descriptions = False, []
         speech.say('assist_ready')
         while True:
@@ -352,7 +359,7 @@ def run(directory=None):
                 narration.reset(); reader.reset()
                 cues.reset()
                 audio.stop()
-                previous_error, previous_cue_error = None, None
+                previous_error, previous_cue_error, error_streak = None, None, 0
                 descriptions = []
             if not paused:
                 snapshot = None
@@ -396,10 +403,10 @@ def run(directory=None):
                                 logger.event('Kungfu audio playback failed', error=str(cue_error))
                                 speech.say('kungfu_cues_error', detail=str(cue_error))
                                 previous_cue_error = signature
-                    if previous_error is not None:
+                    if error_streak >= FAILURE_ANNOUNCE_TICKS:
                         speech.say('assist_recovered')
                         logger.event('Diagnostic recovered', pid=metadata['pid'])
-                        previous_error = None
+                    previous_error, error_streak = None, 0
                     batch = narration.update(items)
                     for row in batch:
                         speech.say('assist_text', text=row['text'])
@@ -423,14 +430,18 @@ def run(directory=None):
                         narration.reset(); reader.reset()
                         cues.reset()
                         audio.stop()
-                        previous_error, previous_cue_error = None, None
+                        previous_error, previous_cue_error, error_streak = None, None, 0
                         descriptions = []
                     else:
-                        # Guest RAM may be mid-write; do not read stale state.
+                        # Guest RAM may be mid-write; do not read stale state. A
+                        # failure is only read out once it has survived several
+                        # captures in a row, which drops the ones caused by a scene
+                        # being built.
                         signature = type(error).__name__, str(error)
-                        if signature != previous_error:
+                        error_streak = error_streak + 1 if signature == previous_error else 1
+                        previous_error = signature
+                        if error_streak == FAILURE_ANNOUNCE_TICKS:
                             announce_failure(speech, logger, error)
-                            previous_error = signature
                         narration.reset(); reader.reset()
                         cues.reset()
                         audio.stop()

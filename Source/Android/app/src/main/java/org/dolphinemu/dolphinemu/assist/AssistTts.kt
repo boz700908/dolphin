@@ -14,14 +14,26 @@ import java.util.Locale
  * Screen-reader speech output through the platform TextToSpeech engine.
  *
  * Narration runs on its own Python thread, which must never block on speech, so
- * every request is posted to the main looper and queued rather than awaited.
- * Requests that arrive before the engine finishes initializing are held and
- * spoken once, in order, so the first announcement of a session is not lost.
+ * every request is posted to the main looper rather than awaited.
+ *
+ * A new message interrupts whatever is being spoken. This game reports state
+ * continuously, and queueing made the speech fall further and further behind
+ * the action: by the time a cue was read out the moment it described had gone.
+ * Cutting in keeps what the user hears current, and the message that was cut
+ * off is stale by definition. Requests that arrive before the engine finishes
+ * initializing are held and spoken once, in order, so the first announcement of
+ * a session is not lost.
  *
  * The engine is started lazily on the first request and released by shutdown().
  */
 object AssistTts {
     private const val TAG = "AssistTts"
+
+    /** A message identical to the previous one within this window is not restarted. */
+    private const val REPEAT_WINDOW_MS = 400L
+
+    /** How many pre-initialization messages are kept; the oldest go first. */
+    private const val PENDING_LIMIT = 8
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -35,6 +47,11 @@ object AssistTts {
     private var failed = false
 
     private val pending = ArrayDeque<String>()
+
+    // The last text spoken and when, so a message repeated every frame is not
+    // restarted over and over.
+    private var lastText: String? = null
+    private var lastTime = 0L
 
     /**
      * Starts the engine now if it was not started yet.
@@ -80,7 +97,17 @@ object AssistTts {
                 return@post
             }
 
+            val now = android.os.SystemClock.uptimeMillis()
+            if (text == lastText && now - lastTime < REPEAT_WINDOW_MS) {
+                return@post
+            }
+            lastText = text
+            lastTime = now
+
             if (!ready) {
+                if (pending.size >= PENDING_LIMIT) {
+                    pending.removeFirst()
+                }
                 pending.addLast(text)
                 return@post
             }
@@ -147,7 +174,8 @@ object AssistTts {
 
     private fun speakNow(text: String) {
         val tts = engine ?: return
-        val result = tts.speak(text, TextToSpeech.QUEUE_ADD, null, null)
+        // QUEUE_FLUSH: say this now, drop whatever is still speaking.
+        val result = tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
         if (result != TextToSpeech.SUCCESS) {
             Log.w(TAG, "Speak rejected ($result): $text")
         }

@@ -70,7 +70,10 @@ class GestureControls(private val controllerIndex: Int) {
 
                     apply(
                         pointerId,
-                        resolveDirection(state, event.getX(index), event.getY(index), density)
+                        resolveDirection(
+                            state, event.getX(index), event.getY(index),
+                            density, width, height
+                        )
                     )
                 }
             }
@@ -117,7 +120,9 @@ class GestureControls(private val controllerIndex: Int) {
         state: PointerState,
         x: Float,
         y: Float,
-        density: Float
+        density: Float,
+        width: Int,
+        height: Int
     ): Int {
         val dx = x - state.downX
         val dy = y - state.downY
@@ -130,9 +135,15 @@ class GestureControls(private val controllerIndex: Int) {
                 state.control == WIIMOTE_LEFT || state.control == WIIMOTE_RIGHT
 
         // A direction is only kept while the finger stays out past the release distance, so a
-        // finger hovering on the threshold does not flicker between the d-pad and A/B.
-        if (distance < if (isHoldingDirection) release else threshold)
-            return state.control
+        // finger hovering on the threshold does not flicker between the d-pad and A/B. Coming back
+        // in then presses whatever the finger originally landed on again, which is what makes a
+        // d-pad press cancellation return control to A or B.
+        if (distance < if (isHoldingDirection) release else threshold) {
+            return if (isHoldingDirection)
+                hitTest(state.downX, state.downY, width, height)
+            else
+                state.control
+        }
 
         if (Math.abs(dx) >= Math.abs(dy))
             return if (dx > 0f) WIIMOTE_RIGHT else WIIMOTE_LEFT
@@ -146,18 +157,16 @@ class GestureControls(private val controllerIndex: Int) {
             return WIIMOTE_A
 
         val cornerWidth = width * CORNER_WIDTH_RATIO
+        val cornerHeight = height * CORNER_HEIGHT_RATIO
+        val inCornerRow = y < cornerHeight || y > height - cornerHeight
 
         val isLeft = x < width / 2f
         val isTop = y < height / 2f
 
-        if (isTop && x < cornerWidth)
-            return WIIMOTE_ONE
-        if (isTop && x > width - cornerWidth)
-            return WIIMOTE_TWO
-        if (!isTop && x < cornerWidth)
-            return WIIMOTE_MINUS
-        if (!isTop && x > width - cornerWidth)
-            return WIIMOTE_PLUS
+        if (inCornerRow && x < cornerWidth)
+            return if (isTop) WIIMOTE_ONE else WIIMOTE_MINUS
+        if (inCornerRow && x > width - cornerWidth)
+            return if (isTop) WIIMOTE_TWO else WIIMOTE_PLUS
 
         return if (isLeft) WIIMOTE_A else WIIMOTE_B
     }
@@ -232,10 +241,13 @@ class GestureControls(private val controllerIndex: Int) {
         private const val WIIMOTE_RIGHT = InputOverrider.ControlId.WIIMOTE_DPAD_RIGHT
 
         /** Corner width, as a fraction of the screen, that presses 1, 2, - and +. */
-        private const val CORNER_WIDTH_RATIO = 0.18f
+        private const val CORNER_WIDTH_RATIO = 0.28f
+
+        /** How tall a corner reaches in from the top or bottom edge. */
+        private const val CORNER_HEIGHT_RATIO = 0.36f
 
         /** How far a finger travels before the drag becomes a d-pad press. */
-        private const val SWIPE_THRESHOLD_DP = 24f
+        private const val SWIPE_THRESHOLD_DP = 20f
 
         /** How far back it has to come before the d-pad press is dropped. */
         private const val SWIPE_RELEASE_DP = 12f

@@ -41,7 +41,7 @@
   "ram_header": "游戏内存大小记录与支持的布局不一致。",
   "wrong_signature": "运行中的程序签名与已分析的汉化版不一致，暂不采集。",
   "capture_changed": "采集期间游戏编号或程序签名发生变化，这次采集已拒绝。",
-  "outside_snapshot": "请求的地址超出了本次内存快照。",
+  "outside_snapshot": "请求的地址 {address} 超出了本次内存快照（{reader}）。",
   "mapping_missing": "Dolphin 具名共享内存尚未建立，或当前进程无法读取。",
   "data_missing": "缺少诊断数据 {path}，请重新构建工具。",
   "data_mismatch": "诊断数据校验失败：{path}，请重新构建。",
