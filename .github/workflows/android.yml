@@ -50,13 +50,22 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
+      # The runner image already ships an SDK, so this installs the pinned
+      # packages directly. android-actions/setup-android is deliberately not
+      # used: it runs "sdkmanager tools", a package that no longer exists, and
+      # fails on current runner images.
       - name: Install SDK packages
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager --install \
+          set -eu
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME=${ANDROID_HOME}" >> "$GITHUB_ENV"
+
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -maxdepth 2 -name sdkmanager | sort | tail -1)"
+          echo "Using ${SDKMANAGER}"
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
+
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" --install \
             "platforms;${PLATFORM_VERSION}" \
             "build-tools;${BUILD_TOOLS_VERSION}" \
             "ndk;${NDK_VERSION}" \
