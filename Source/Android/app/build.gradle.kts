@@ -55,6 +55,12 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // A debug build is signed with a key Gradle generates on the machine that builds
+    // it, so every CI run produced an APK that could not be installed over the last
+    // one. CI passes the project's own key in instead, and that signs the debug build
+    // too so the app is updated in place and keeps its save data.
+    val stableKeystore = System.getenv("MINNAN_KEYSTORE")
+
     signingConfigs {
         create("release") {
             if (project.hasProperty("keystore")) {
@@ -62,6 +68,15 @@ android {
                 storePassword = project.property("storepass").toString()
                 keyAlias = project.property("keyalias").toString()
                 keyPassword = project.property("keypass").toString()
+            }
+        }
+
+        if (stableKeystore != null && file(stableKeystore).exists()) {
+            create("stable") {
+                storeFile = file(stableKeystore)
+                storePassword = System.getenv("MINNAN_STORE_PASSWORD")
+                keyAlias = System.getenv("MINNAN_KEY_ALIAS") ?: "minnanorhythm"
+                keyPassword = System.getenv("MINNAN_KEY_PASSWORD")
             }
         }
     }
@@ -90,6 +105,8 @@ android {
         debug {
             resValue("string", "app_name_suffixed", "\u307f\u3093\u306a\u306e\u30ea\u30ba\u30e0\u5929\u56fd")
             isJniDebuggable = true
+
+            signingConfigs.findByName("stable")?.let { signingConfig = it }
         }
     }
 

@@ -99,6 +99,20 @@ jobs:
           key: ccache-${{ runner.os }}-${{ github.sha }}
           restore-keys: ccache-${{ runner.os }}-
 
+      - name: Install the signing key
+        # A debug APK is normally signed with a key generated on the build machine,
+        # which makes every CI build a different app that has to be uninstalled
+        # before it can be installed. This key is the same one every time.
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          set -e
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "No KEYSTORE_BASE64 secret; signing with the runner's own debug key."
+            exit 0
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/minnanorhythm.jks"
+
       - name: Configure the build
         run: |
           set -e
@@ -110,6 +124,11 @@ jobs:
 
       - name: Build
         working-directory: Source/Android
+        env:
+          MINNAN_KEYSTORE: ${{ runner.temp }}/minnanorhythm.jks
+          MINNAN_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          MINNAN_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          MINNAN_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           set -o pipefail
           VARIANT="${{ github.event.inputs.variant || 'debug' }}"
