@@ -1,8 +1,43 @@
 '''Kungfu cue playback, mixed by the platform alongside the game audio.'''
+import math
 from pathlib import Path
+import struct
 
 from .bridge import AssistRuntime
 from .errors import DiagnosticError
+
+# The launcher version generates its notification tone instead of shipping a
+# sound asset, and names the file the same way so both sides agree on it.
+NOTICE_FILENAME = 'diagnostic-notice.wav'
+NOTICE_KEY = 'notice:0'
+
+# The tone is a fixed short chime, not a message: 0.22 s of two tones together,
+# faded at both ends so it does not click.
+NOTICE_RATE = 22050
+NOTICE_SECONDS = .22
+
+
+def write_notice_wave(directory):
+    '''Write the notification tone beside the cue sounds, returning its path.
+
+    The header is assembled here rather than through the wave module, because
+    the format is one fixed choice and nothing reads it back.
+    '''
+    frames = bytearray()
+    for index in range(int(NOTICE_RATE * NOTICE_SECONDS)):
+        at = index / NOTICE_RATE
+        envelope = min(1.0, at / .015, (NOTICE_SECONDS - at) / .035)
+        sample = .15 * envelope * (math.sin(2 * math.pi * 660 * at) +
+                                   .35 * math.sin(2 * math.pi * 990 * at))
+        frames.extend(struct.pack('<h', int(sample * 32767)))
+
+    # Canonical RIFF/WAVE header for one mono 16-bit stream.
+    header = struct.pack('<4sI4s4sIHHIIHH4sI', b'RIFF', 36 + len(frames), b'WAVE',
+                         b'fmt ', 16, 1, 1, NOTICE_RATE, NOTICE_RATE * 2, 2, 16,
+                         b'data', len(frames))
+    path = Path(directory) / NOTICE_FILENAME
+    path.write_bytes(header + bytes(frames))
+    return path
 
 
 class AudioHandler:

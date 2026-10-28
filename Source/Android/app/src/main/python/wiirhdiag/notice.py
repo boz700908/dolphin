@@ -15,38 +15,63 @@ way to the player is speech, so each one is read out through the same localized
 text the launcher version uses.
 '''
 
+import math
+
 # The text each kind of report is read from.
 FAILED_KEY = 'gui_diagnostic'
 RECOVERED_KEY = 'assist_recovered'
 FATAL_KEY = 'gui_fatal'
 
+# How long a failure has to last before the notification tone sounds, once per
+# episode. The launcher version makes this a setting and defaults to this value.
+# The tone is what tells a player who cannot see a status area that something
+# stopped, so a failure that is over within the grace is only told in words
+# rather than cutting into the game audio for nothing.
+NOTICE_GRACE = 1.5
+MAX_NOTICE_GRACE = 30
+
 
 class DiagnosticNoticeHandler:
     '''One episode per area, opened by a failure and closed by a recovery.'''
 
-    def __init__(self, speech, logger):
+    def __init__(self, speech, logger, tone=None, grace=NOTICE_GRACE):
+        if not math.isfinite(grace) or grace < 0 or grace > MAX_NOTICE_GRACE:
+            raise ValueError('Notification grace must be between zero and 30 seconds')
         self._speech = speech
         self._logger = logger
+        self._tone = tone
+        self._grace = grace
 
-        # area -> the (type, text) of the failure being reported there.
+        # area -> when its episode started, the failure being reported there, and
+        # whether the tone has already sounded for it.
         self._states = {}
 
     def _say(self, key, **values):
         if self._speech is not None:
             self._speech.say(key, **values)
 
-    def failure(self, area, error):
-        '''Record a failure, reading out one report per episode.'''
+    def failure(self, area, error, now):
+        '''Record a failure, reporting its text and sounding it once.'''
         signature = type(error).__name__, str(error)
-        if self._states.get(area) == signature:
-            # The same failure still happening: the player already knows.
+        state = self._states.get(area)
+        if state is None:
+            state = {'started': now, 'signature': None, 'sounded': False}
+            self._states[area] = state
+
+        if state['signature'] != signature:
+            self._logger.event('Diagnostic failed', area=area, error=str(error),
+                               key=getattr(error, 'key', None),
+                               values=getattr(error, 'values', {}))
+            self._say(FAILED_KEY, detail=str(error))
+            state['signature'] = signature
+
+        if state['sounded'] or now - state['started'] < self._grace:
             return
 
-        self._states[area] = signature
-        self._logger.event('Diagnostic failed', area=area, error=str(error),
-                           key=getattr(error, 'key', None),
-                           values=getattr(error, 'values', {}))
-        self._say(FAILED_KEY, detail=str(error))
+        state['sounded'] = True
+        self._logger.event('Diagnostic notice', area=area)
+        if self._tone is not None:
+            self._tone()
 
     def recover(self, area):
         '''Close an area's episode, announcing that it is over.'''

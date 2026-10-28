@@ -29,7 +29,7 @@ from .samurai import SamuraiHandler
 from .scene import SceneHandler
 from .kungfu_state import KungfuStateHandler
 from .kungfu_cues import KungfuCueHandler
-from .audio import AudioHandler
+from .audio import AudioHandler, NOTICE_FILENAME, NOTICE_KEY, write_notice_wave
 from .pause import PauseHandler
 from .two_player import TwoPlayerSelectionHandler
 from .record_selector import RecordSelectorHandler
@@ -291,12 +291,24 @@ def run(directory=None):
     """
     logger = DebugLogger()
     speech, audio, cues, kungfu_state = None, None, None, None
-    notice, lifetime = None, None
+    notice, notice_audio, lifetime = None, None, None
     try:
         data = AssistData(Path(directory) if directory else
                           Path(__file__).resolve().parent / 'data')
         speech = SpeechHandler(logger)
-        notice = DiagnosticNoticeHandler(speech, logger)
+        # The notification tone is generated rather than shipped as a sound
+        # asset, as the launcher version generates it, and is written beside the
+        # cue sounds for the platform to load with them. A directory that cannot
+        # be written costs the tone and nothing else.
+        try:
+            write_notice_wave(data.audio_directory)
+            notice_audio = AudioHandler(data.audio_directory,
+                                        {'assets': {NOTICE_KEY: {'filename': NOTICE_FILENAME}}})
+        except (DiagnosticError, OSError) as error:
+            logger.event('Notification tone unavailable', error=str(error))
+        notice = DiagnosticNoticeHandler(
+            speech, logger,
+            None if notice_audio is None else (lambda: notice_audio.play(0, 'notice')))
         audio = AudioHandler(data.audio_directory, data.assist['kungfu_audio'])
         # The cue sounds live next to the data files; the platform loads them
         # in the background and a cue that is not ready yet stays silent.
@@ -343,7 +355,7 @@ def run(directory=None):
                 # over; connection.poll() has already ended it if the game ended.
                 notice.recover('process')
             except DiagnosticError as error:
-                notice.failure('process', error)
+                notice.failure('process', error, time.monotonic())
                 emulator_exited = False
             if emulator_exited:
                 narration.reset(); reader.reset()
@@ -367,7 +379,7 @@ def run(directory=None):
                         # guessed at, but the rest of the reading continues.
                         cues.reset()
                         audio.stop()
-                        notice.failure('cues', cue_error)
+                        notice.failure('cues', cue_error, time.monotonic())
                     items, descriptions, layouts = reader.read(snapshot)
                     if observed is not None:
                         try:
@@ -384,7 +396,7 @@ def run(directory=None):
                         except DiagnosticError as cue_error:
                             cues.reset()
                             audio.stop()
-                            notice.failure('cues', cue_error)
+                            notice.failure('cues', cue_error, time.monotonic())
                     # This read worked, so the episode a failed one opened is
                     # over and is closed here.
                     notice.recover('reading')
@@ -416,7 +428,7 @@ def run(directory=None):
                         # Guest RAM may be mid-write; do not read stale state. The
                         # failure opens an episode, which is reported once however
                         # long it lasts and is closed by the first read that works.
-                        notice.failure('reading', error)
+                        notice.failure('reading', error, time.monotonic())
                         narration.reset(); reader.reset()
                         cues.reset()
                         audio.stop()
@@ -438,10 +450,16 @@ def run(directory=None):
                 lifetime.close()
             except DiagnosticError as error:
                 if notice is not None:
-                    notice.failure('process_shutdown', error)
+                    notice.failure('process_shutdown', error, time.monotonic())
         if audio is not None:
             try:
                 audio.stop()
             except DiagnosticError as error:
                 if notice is not None:
-                    notice.failure('audio_shutdown', error)
+                    notice.failure('audio_shutdown', error, time.monotonic())
+        if notice_audio is not None:
+            try:
+                notice_audio.stop()
+            except DiagnosticError as error:
+                if notice is not None:
+                    notice.failure('notice_shutdown', error, time.monotonic())
