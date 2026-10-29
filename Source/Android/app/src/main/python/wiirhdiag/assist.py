@@ -276,32 +276,29 @@ class ReadingHandler:
         return items, descriptions, layouts
 
 
-# Screens that wait for the player to press a button: a dialogue line, a grade, a letter, a menu,
-# the tutorial prompt, the game's own title and pause screens. A press on one of these is an
-# answer, so the message it produces replaces whatever is still being read.
+# Kinds of message that only appear on a screen waiting for the player to press a button: a
+# dialogue line, a grade, a letter, a menu, the game's own title and pause screens. A press on one
+# of these is an answer, so the message it produces replaces whatever is still being read.
+#
+# Nothing a level shows during play is in this set, including the instructions that levels carry:
+# a tutorial hint, the word a karate round draws, an endless score, a hihat demo, a lyric line.
+# They are read while the level runs, and the player is pressing buttons all the while, so a press
+# there is part of the play and never an answer.
 AWAITING_KINDS = frozenset((
-    'title', 'selection', 'files', 'tutorial', 'cafe', 'letter', 'lists', 'extras',
+    'title', 'selection', 'files', 'cafe', 'letter', 'lists', 'extras',
     'two_player', 'record_selector', 'grading', 'dual_grading', 'endless_result',
     'ending', 'prologue', 'perfect_success', 'staff_credits', 'cast_credits', 'pause',
 ))
 
 
-def awaiting_input(data, items, layouts):
-    """Whether the screen just read is one that waits for the player to press something.
+def awaiting_input(items):
+    """Whether what was just read is a screen that waits for the player to press something.
 
-    This is read from the native layouts rather than timed: a screen either owns a supported
-    layout that waits for a button or it does not, and the reader already knows which. Gameplay
-    screens are never in the set, so a press during play can never cut narration short.
+    Decided by the messages themselves: a supported layout can stay registered through a whole
+    level while drawing nothing that waits, so only text actually on screen counts. The kinds are
+    read from the native profile rather than timed, and no level's own text is among them.
     """
-    for row in items:
-        if row.get('kind') in AWAITING_KINDS:
-            return True
-    features = data.assist['features']
-    for owner in layouts.get('owners', ()):
-        feature = features.get(str(owner['owner_vtable']))
-        if feature is not None and feature['kind'] in AWAITING_KINDS:
-            return True
-    return False
+    return any(row.get('kind') in AWAITING_KINDS for row in items)
 
 
 # Menu commands the emulator posts; the same names as the Kotlin constants.
@@ -430,7 +427,7 @@ def run(directory=None):
                     # Whether this screen waits for a button, told to the speech side so that a
                     # press can end the sentence in progress there and only there. The presses of
                     # the frame are taken here and count as an answer only on such a screen.
-                    waiting = awaiting_input(data, items, layouts)
+                    waiting = awaiting_input(items)
                     AssistRuntime.setAwaitingInput(waiting)
                     # Taken every frame either way: a press during play answers nothing, and once
                     # the game stops waiting the press it was waiting for is spent as well.

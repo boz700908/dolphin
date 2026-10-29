@@ -27,11 +27,11 @@ import java.util.concurrent.atomic.AtomicInteger
  *   is played, and a direction replaces the moment being described, so carrying on with the old
  *   sentence would tell the player about a moment that is no longer there.
  * - Any other press ends it only while the game is waiting for the player: a dialogue line, a
- *   grade, a letter in the mailbox, a menu, the tutorial prompt. There the press is an answer,
- *   and what the game makes of it is a new message a frame later, which is read from its start
- *   because the stale text was already dropped. While the game is being played rather than waiting
- *   for the player, a button is part of the play itself and narration has to be allowed to finish,
- *   so nothing is cut off.
+ *   grade, a letter in the mailbox, a menu. There the press is an answer, and what the game makes
+ *   of it is a new message a frame later, which is read from its start because the stale text was
+ *   already dropped. While the game is being played rather than waiting for the player -- including
+ *   while a level is showing its own instructions -- a button is part of the play itself and
+ *   narration has to be allowed to finish, so nothing is cut off.
  *
  * Whether the game waits is not guessed here. The Python reader knows it from the native layouts it
  * has just read and reports it every frame; the reader also takes the press count, so a message
@@ -99,8 +99,9 @@ object AssistTts {
     // thread, which is the one that knows whether the game is waiting for the player.
     private val presses = AtomicInteger(0)
 
-    // Reported by the reader every frame: true while the native layout the player is on is one that
-    // waits for a button. A press is an answer there and may cut in; during play it may not.
+    // Reported by the reader every frame: true while what is on screen is a screen that waits for a
+    // button. A press is an answer there and may cut in; during play it may not, even when the
+    // level is showing instructions.
     @Volatile
     private var awaitingInput = false
 
