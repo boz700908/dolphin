@@ -280,15 +280,21 @@ class ReadingHandler:
 # dialogue line, a grade, a letter, a menu, the game's own title and pause screens. A press on one
 # of these is an answer, so the message it produces replaces whatever is still being read.
 #
-# Nothing a level shows during play is in this set, including the instructions that levels carry:
-# a tutorial hint, the word a karate round draws, an endless score, a hihat demo, a lyric line.
-# They are read while the level runs, and the player is pressing buttons all the while, so a press
-# there is part of the play and never an answer.
+# Nothing a level shows during play is in this set, including the word a karate round draws, an
+# endless score, a hihat demo, a lyric line. They are read while the level runs, and the player is
+# pressing buttons all the while, so a press there is part of the play and never an answer.
+#
+# The credit rolls and the ending are left out as well: they turn their own pages, so nothing they
+# show is waiting for a press and a press must not cut a page short.
 AWAITING_KINDS = frozenset((
     'title', 'selection', 'files', 'cafe', 'letter', 'lists', 'extras',
-    'two_player', 'record_selector', 'grading', 'dual_grading', 'endless_result',
-    'ending', 'prologue', 'perfect_success', 'staff_credits', 'cast_credits', 'pause',
+    'two_player', 'record_selector', 'grading', 'dual_grading', 'endless_result', 'pause',
 ))
+
+# A dialogue box is the one instruction that does wait: the words stay up until the player presses
+# a button, and pressing is how the story moves on. Every verified family draws it under the same
+# shared message key, so the key names it and not the layout that happens to own it.
+AWAITING_KEYS = frozenset(('tutorial:instruction',))
 
 
 def awaiting_input(items):
@@ -296,9 +302,11 @@ def awaiting_input(items):
 
     Decided by the messages themselves: a supported layout can stay registered through a whole
     level while drawing nothing that waits, so only text actually on screen counts. The kinds are
-    read from the native profile rather than timed, and no level's own text is among them.
+    read from the native profile rather than timed, and the one drawing of a level's own that
+    waits, its dialogue box, is named by its key.
     """
-    return any(row.get('kind') in AWAITING_KINDS for row in items)
+    return any(row.get('kind') in AWAITING_KINDS or row['key'] in AWAITING_KEYS
+               for row in items)
 
 
 # Menu commands the emulator posts; the same names as the Kotlin constants.

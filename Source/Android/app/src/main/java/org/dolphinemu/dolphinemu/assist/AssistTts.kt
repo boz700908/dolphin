@@ -89,7 +89,8 @@ object AssistTts {
 
     // Reported by the reader every frame: true while what is on screen is a screen that waits for a
     // button. A press is an answer there and may cut in; during play it may not, even when the
-    // level is showing instructions.
+    // level is showing instructions. A level's dialogue box is the one exception among its own
+    // drawings: its words stay up until a button moves the story on.
     @Volatile
     private var awaitingInput = false
 
