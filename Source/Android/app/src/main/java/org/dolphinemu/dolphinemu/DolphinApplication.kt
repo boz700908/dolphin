@@ -6,6 +6,7 @@ import android.app.Activity
 import android.app.Application
 import android.content.Context
 import android.hardware.usb.UsbManager
+import org.dolphinemu.dolphinemu.assist.ScreenReader
 import org.dolphinemu.dolphinemu.utils.ActivityTracker
 import org.dolphinemu.dolphinemu.utils.DirectoryInitialization
 import org.dolphinemu.dolphinemu.utils.GCAdapter
@@ -27,6 +28,10 @@ class DolphinApplication : Application() {
         if (DirectoryInitialization.shouldStart(applicationContext)) {
             DirectoryInitialization.start(applicationContext)
         }
+
+        // A player who runs a screen reader gets the spoken interface and the
+        // gesture layer from the first moment, without setting anything up.
+        ScreenReader.adopt(applicationContext)
     }
 
     companion object {

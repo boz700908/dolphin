@@ -259,7 +259,7 @@ class GestureControls(private val controllerIndex: Int) {
         private const val WIIMOTE_RIGHT = InputOverrider.ControlId.WIIMOTE_DPAD_RIGHT
 
         /** Width of the A and B bands at each side, as a fraction of the screen. */
-        private const val SIDE_RATIO = 0.30f
+        private const val SIDE_RATIO = 0.35f
 
         /** How tall a corner reaches in from the top or bottom edge. */
         private const val CORNER_HEIGHT_RATIO = 0.32f
