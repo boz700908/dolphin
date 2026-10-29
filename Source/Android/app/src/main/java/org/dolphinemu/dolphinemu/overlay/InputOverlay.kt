@@ -44,6 +44,23 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) : SurfaceView(contex
     OnTouchListener {
     private val overlayButtons: MutableSet<InputOverlayDrawableButton> = HashSet()
     private val overlayDpads: MutableSet<InputOverlayDrawableDpad> = HashSet()
+
+    // The directions each on-screen d-pad was last seen pointing in, so that a finger dragged
+    // across it reports a new press per direction and not one per frame.
+    private val dpadDirections = HashMap<InputOverlayDrawableDpad, Int>()
+
+    // Whatever sends a d-pad direction, the narration treats it the same way: a direction ends the
+    // sentence in progress, on any screen.
+    private fun isDirection(control: Int): Boolean = when (control) {
+        ControlId.WIIMOTE_DPAD_UP, ControlId.WIIMOTE_DPAD_DOWN,
+        ControlId.WIIMOTE_DPAD_LEFT, ControlId.WIIMOTE_DPAD_RIGHT,
+        ControlId.GCPAD_DPAD_UP, ControlId.GCPAD_DPAD_DOWN,
+        ControlId.GCPAD_DPAD_LEFT, ControlId.GCPAD_DPAD_RIGHT,
+        ControlId.CLASSIC_DPAD_UP, ControlId.CLASSIC_DPAD_DOWN,
+        ControlId.CLASSIC_DPAD_LEFT, ControlId.CLASSIC_DPAD_RIGHT -> true
+        else -> false
+    }
+
     private val overlayJoysticks: MutableSet<InputOverlayDrawableJoystick> = HashSet()
     private var overlayPointer: InputOverlayPointer? = null
 
@@ -144,16 +161,6 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) : SurfaceView(contex
             return gestures.onTouchEvent(event, width, height, resources.displayMetrics.density)
         }
 
-        // A finger on the overlay presses controls exactly as a controller does, and the narration
-        // judges what may cut in by what is held down, so it has to be told about both ends.
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN,
-            MotionEvent.ACTION_POINTER_DOWN -> AssistTts.noteInputDown()
-            MotionEvent.ACTION_UP,
-            MotionEvent.ACTION_POINTER_UP -> AssistTts.noteInputUp()
-            MotionEvent.ACTION_CANCEL -> AssistTts.noteAllInputsReleased()
-        }
-
         val action = event.actionMasked
         val firstPointer = action != MotionEvent.ACTION_POINTER_DOWN &&
                 action != MotionEvent.ACTION_POINTER_UP
@@ -175,6 +182,11 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) : SurfaceView(contex
                         button.setPressedState(if (button.latching) !button.getPressedState() else true)
                         button.trackId = event.getPointerId(pointerIndex)
                         pressed = true
+                        // A finger here presses a control exactly as a controller does, so the
+                        // narration is told about the press: a d-pad direction ends the sentence in
+                        // progress, another button only when the game is waiting for one. Nothing
+                        // is reported on release, as how long a press is held does not matter.
+                        AssistTts.noteInputDown(isDirection(button.control))
                         InputOverrider.setControlState(controllerIndex, button.control, if (button.getPressedState()) 1.0 else 0.0)
 
                         val analogControl = getAnalogControlForTrigger(button.control)
@@ -223,6 +235,7 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) : SurfaceView(contex
                     ) {
                         dpad.trackId = event.getPointerId(pointerIndex)
                         pressed = true
+                        dpadDirections[dpad] = 0
                     }
                 }
             }
@@ -265,6 +278,18 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) : SurfaceView(contex
                             dpadPressed[2],
                             dpadPressed[3]
                         )
+
+                        // Dragging across a d-pad picks a new direction without lifting the finger,
+                        // which is a press of that direction for the narration. Holding the same
+                        // direction reports the same set every frame and is not a new press.
+                        var directions = 0
+                        for (i in dpadPressed.indices)
+                            if (dpadPressed[i])
+                                directions = directions or (1 shl i)
+                        if (directions != 0 && directions != dpadDirections[dpad]) {
+                            dpadDirections[dpad] = directions
+                            AssistTts.noteInputDown(direction = true)
+                        }
                     }
                 }
 
@@ -281,6 +306,7 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) : SurfaceView(contex
                             )
                         }
                         dpad.trackId = -1
+                        dpadDirections.remove(dpad)
                     }
                 }
             }

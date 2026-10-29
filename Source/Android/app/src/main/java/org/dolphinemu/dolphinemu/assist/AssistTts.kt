@@ -9,6 +9,8 @@ import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
+import android.view.KeyEvent
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Screen-reader speech output through the platform TextToSpeech engine.
@@ -16,15 +18,25 @@ import android.util.Log
  * Narration runs on its own Python thread, which must never block on speech, so every request is
  * posted to the main looper rather than awaited.
  *
- * What interrupts what is decided by the player's own input and by nothing else. Pressing a control
- * on the screen, on a controller, on a keyboard or on a remote is an event, and it cuts off whatever
- * is being read the moment it happens: the sentence in progress describes a moment the press has
- * just replaced, so it ends on the press itself rather than on the next message, whether or not the
- * game has anything to say afterwards. While at least one control is held down, the messages the
- * game reports are the answer to that press and cut in as well. With nothing held, messages queue up
- * behind each other so that each one can be read to its end. Nothing here counts time: a press and
- * the release that ends it are what the narration listens to, rather than a window guessed at after
- * the press.
+ * What interrupts what is decided by the player's own input and by nothing else. Every device
+ * reports here -- the gesture layer, the on-screen overlay, a controller, a keyboard, a TV remote
+ * -- so which one was used never enters into it. Two rules follow from what the game is doing when
+ * the press happens:
+ *
+ * - A d-pad press ends the sentence in progress, on the press itself. The d-pad is how this game
+ *   is played, and a direction replaces the moment being described, so carrying on with the old
+ *   sentence would tell the player about a moment that is no longer there.
+ * - Any other press ends it only while the game is waiting for the player: a dialogue line, a
+ *   grade, a letter in the mailbox, a menu, the tutorial prompt. There the press is an answer,
+ *   and what the game makes of it is a new message a frame later, which is read from its start
+ *   because the stale text was already dropped. While the game is being played rather than waiting
+ *   for the player, a button is part of the play itself and narration has to be allowed to finish,
+ *   so nothing is cut off.
+ *
+ * Whether the game waits is not guessed here. The Python reader knows it from the native layouts it
+ * has just read and reports it every frame; the reader also takes the press count, so a message
+ * that answers a press is spoken queued behind nothing instead of behind stale text. Nothing counts
+ * time: a press, and the state the game is in when it happens, are the whole of the decision.
  *
  * The engine is used as the system has it -- its own voice, language, rate and pitch. The one
  * exception is an engine that reports no default voice at all, which then reads nothing: for that
@@ -51,6 +63,17 @@ object AssistTts {
     /** How many times the engine may be started before speech is given up on for this session. */
     private const val MAX_ATTEMPTS = 3
 
+    /** How far a d-pad hat has to travel before it counts as pointing that way. */
+    private const val HAT_DEADZONE = 0.3f
+
+    /** Key codes that reach the game as a d-pad direction, whichever device sent them. */
+    private val DPAD_KEYS = setOf(
+        KeyEvent.KEYCODE_DPAD_UP,
+        KeyEvent.KEYCODE_DPAD_DOWN,
+        KeyEvent.KEYCODE_DPAD_LEFT,
+        KeyEvent.KEYCODE_DPAD_RIGHT
+    )
+
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var engine: TextToSpeech? = null
@@ -64,15 +87,27 @@ object AssistTts {
     // True once onInit has reported success; until then requests are queued.
     private var ready = false
 
-    private val pending = ArrayDeque<String>()
+    // Messages and whether each one was meant to replace what is audible. A flush asked for before
+    // the engine existed is still a flush when it is spoken.
+    private val pending = ArrayDeque<Pair<String, Boolean>>()
 
     // The text the engine is reading aloud right now. The game reports some states every frame, and
     // the same words arriving again while they are audible are not restarted.
     private var speakingText: String? = null
 
-    // Controls the player currently holds down, from any device. Nothing counts time; this is the
-    // whole of what decides an interruption.
-    private var heldInputs = 0
+    // Presses since the reader last looked. Written on the main thread, read from the narration
+    // thread, which is the one that knows whether the game is waiting for the player.
+    private val presses = AtomicInteger(0)
+
+    // Reported by the reader every frame: true while the native layout the player is on is one that
+    // waits for a button. A press is an answer there and may cut in; during play it may not.
+    @Volatile
+    private var awaitingInput = false
+
+    // The direction a controller's d-pad hat was last seen pointing in, per axis, so that holding
+    // it does not read as repeated presses.
+    private var hatX = 0
+    private var hatY = 0
 
     // Utterance id to the text read under it. Ids are numbers: some engines treat the id as a file
     // name or a log key, and a whole Chinese sentence is the wrong thing to hand them for that.
@@ -103,16 +138,19 @@ object AssistTts {
     /**
      * Speaks one already-localized message.
      *
-     * Called from the narration thread.
+     * Called from the narration thread. [flush] asks for the message to replace whatever is
+     * audible instead of queueing behind it, which the reader asks for only when the message
+     * answers a press the player just made while the game was waiting for one.
      */
     @JvmStatic
-    fun say(text: String) {
+    fun say(text: String, flush: Boolean) {
         if (text.isEmpty()) {
             return
         }
 
         mainHandler.post {
-            if (text == speakingText || text == pending.lastOrNull()) {
+            val last = pending.lastOrNull()?.first
+            if (text == speakingText || text == last) {
                 return@post
             }
 
@@ -129,14 +167,11 @@ object AssistTts {
                 if (pending.size >= PENDING_LIMIT) {
                     pending.removeFirst()
                 }
-                pending.addLast(text)
+                pending.addLast(text to flush)
                 return@post
             }
 
-            // A message while the player holds a control is the answer to that press, so it cuts
-            // in; a message nobody pressed anything for is narration that has to be allowed to
-            // finish.
-            speakNow(text, flush = heldInputs > 0)
+            speakNow(text, flush)
         }
     }
 
@@ -144,44 +179,79 @@ object AssistTts {
      * Records that a control went down, whichever device it is on. Called from the touch layer, the
      * key dispatch of the emulation activity and the gesture layer, all of which run on the main
      * thread.
+     *
+     * [direction] marks the d-pad, which cuts in wherever it happens; anything else cuts in only
+     * where the game is waiting for the player. See the class comment for why the two differ.
      */
     @JvmStatic
-    fun noteInputDown() {
-        heldInputs++
-        interrupt()
-    }
+    fun noteInputDown(direction: Boolean = false) {
+        presses.incrementAndGet()
 
-    /**
-     * Records that such a control went back up.
-     */
-    @JvmStatic
-    fun noteInputUp() {
-        if (heldInputs > 0) {
-            heldInputs--
+        if (direction || awaitingInput) {
+            interrupt()
         }
     }
 
     /**
-     * Forgets everything that was held, for when the input state is thrown away wholesale, such as
-     * when the overlay is rebuilt or the game is paused.
+     * Records a key press by its code, so the caller does not have to decide what counts as a
+     * direction. Called from the emulation activity for every device that sends key events.
      */
     @JvmStatic
-    fun noteAllInputsReleased() {
-        heldInputs = 0
+    fun noteKeyDown(keyCode: Int) {
+        noteInputDown(keyCode in DPAD_KEYS)
     }
 
     /**
-     * Drops speech that has not started yet.
+     * Records what a controller's d-pad hat is doing, reported as an axis rather than as keys.
      *
-     * Used when the game exits or narration is paused, so stale cues are not
-     * read out later. The utterance already in progress is left alone.
+     * A push that stays pushed is one direction and not a stream of presses, so only the change
+     * counts: the hat is remembered by the direction it points in, and a change to another one is
+     * a new press, which is a direction and so ends the sentence in progress.
+     */
+    @JvmStatic
+    fun noteHatAxis(x: Float, y: Float) {
+        val sx = if (x > HAT_DEADZONE) 1 else if (x < -HAT_DEADZONE) -1 else 0
+        val sy = if (y > HAT_DEADZONE) 1 else if (y < -HAT_DEADZONE) -1 else 0
+
+        if (sx == 0 && sy == 0) {
+            hatX = 0
+            hatY = 0
+            return
+        }
+        if (sx == hatX && sy == hatY) {
+            return
+        }
+
+        hatX = sx
+        hatY = sy
+        noteInputDown(direction = true)
+    }
+
+    /**
+     * Sets whether the game is waiting for the player, as the reader reports it every frame.
+     */
+    @JvmStatic
+    fun setAwaitingInput(value: Boolean) {
+        awaitingInput = value
+    }
+
+    /**
+     * Returns how many presses have happened since this was last called, and forgets them.
+     *
+     * Called by the reader once per frame: a press belongs to the message it produced, so the
+     * count is emptied even on frames that produced none.
+     */
+    @JvmStatic
+    fun takePresses(): Int = presses.getAndSet(0)
+
+    /**
+     * Drops speech that has not started yet, and ends the one in progress.
+     *
+     * Used when the game exits or narration is paused, so stale cues are not read out later.
      */
     @JvmStatic
     fun clear() {
-        mainHandler.post {
-            pending.clear()
-            engine?.stop()
-        }
+        mainHandler.post { interrupt() }
     }
 
     /**
@@ -253,10 +323,11 @@ object AssistTts {
 
         ensureVoice(tts)
 
-        // Everything collected before the engine existed is spoken now. Only the
-        // first one flushes: flushing the rest would leave just the last audible.
+        // Everything collected before the engine existed is spoken now, in the order it was
+        // announced. A flush among them would empty the queue it is standing in, so these are
+        // simply queued: nothing is audible yet for them to replace.
         while (pending.isNotEmpty()) {
-            speakNow(pending.removeFirst(), flush = pending.isEmpty())
+            speakNow(pending.removeFirst().first, flush = false)
         }
     }
 
@@ -302,18 +373,20 @@ object AssistTts {
      * the previous one.
      */
     private fun interrupt() {
-        val tts = engine ?: return
-        tts.stop()
+        // Queued messages describe states the press has just moved past, so they go with it.
+        pending.clear()
         // The engine reports the stop back through onStop, but the text is already stale: a report
         // of the same state after the press has to be read again, not taken for a repeat.
         speakingText = null
+        engine?.stop()
     }
 
-    private fun speakNow(text: String, flush: Boolean = true) {
+    private fun speakNow(text: String, flush: Boolean) {
         val tts = engine ?: return
 
-        // QUEUE_FLUSH: say this now and drop whatever is still speaking, because a
-        // message that is still being read describes a moment that has passed.
+        // QUEUE_FLUSH: say this now and drop whatever is still speaking, because a message that is
+        // still being read describes a moment that has passed. QUEUE_ADD: this is narration nobody
+        // asked for, so it waits until what is audible has been read to its end.
         val mode = if (flush) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
 
         val id = (++nextUtteranceId).toString()
@@ -338,7 +411,8 @@ object AssistTts {
         }
         engine = null
         speakingText = null
-        heldInputs = 0
+        presses.set(0)
+        awaitingInput = false
         utteranceTexts.clear()
     }
 }

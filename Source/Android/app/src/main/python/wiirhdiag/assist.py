@@ -276,6 +276,34 @@ class ReadingHandler:
         return items, descriptions, layouts
 
 
+# Screens that wait for the player to press a button: a dialogue line, a grade, a letter, a menu,
+# the tutorial prompt, the game's own title and pause screens. A press on one of these is an
+# answer, so the message it produces replaces whatever is still being read.
+AWAITING_KINDS = frozenset((
+    'title', 'selection', 'files', 'tutorial', 'cafe', 'letter', 'lists', 'extras',
+    'two_player', 'record_selector', 'grading', 'dual_grading', 'endless_result',
+    'ending', 'prologue', 'perfect_success', 'staff_credits', 'cast_credits', 'pause',
+))
+
+
+def awaiting_input(data, items, layouts):
+    """Whether the screen just read is one that waits for the player to press something.
+
+    This is read from the native layouts rather than timed: a screen either owns a supported
+    layout that waits for a button or it does not, and the reader already knows which. Gameplay
+    screens are never in the set, so a press during play can never cut narration short.
+    """
+    for row in items:
+        if row.get('kind') in AWAITING_KINDS:
+            return True
+    features = data.assist['features']
+    for owner in layouts.get('owners', ()):
+        feature = features.get(str(owner['owner_vtable']))
+        if feature is not None and feature['kind'] in AWAITING_KINDS:
+            return True
+    return False
+
+
 # Menu commands the emulator posts; the same names as the Kotlin constants.
 COMMAND_STOP = 'stop'
 COMMAND_PAUSE = 'pause'
@@ -324,12 +352,17 @@ def run(directory=None):
         cues = KungfuCueHandler(data.assist['kungfu_cues'])
         narration = NarrationHandler()
         paused, descriptions = False, []
+        # A press is remembered until the message it produced is spoken, because the reader
+        # confirms a change over two captures and the answer arrives a frame or two later.
+        pressed = False
         channel.emit('ready', text=Loc.Get('gui_worker_ready'))
         while True:
             tick = time.monotonic()
             command = AssistRuntime.pollCommand()
+            # The menu commands are pressed by the player with the same buttons as the game's own
+            # screens, so their answers replace whatever is being read.
             if command == COMMAND_STOP:
-                speech.say('assist_goodbye')
+                speech.say('assist_goodbye', flush=True)
                 return 0
             if command == COMMAND_PAUSE:
                 paused = not paused
@@ -340,18 +373,20 @@ def run(directory=None):
                 if paused:
                     # Drop anything queued: after resuming it would be stale.
                     speech.clear()
-                speech.say('assist_paused' if paused else 'assist_resumed')
+                speech.say('assist_paused' if paused else 'assist_resumed', flush=True)
             elif command == COMMAND_REPEAT:
                 batch = narration.repeat()
                 if not batch:
-                    speech.say('assist_no_message')
-                for row in batch:
-                    speech.say('assist_text', text=row['text'])
+                    speech.say('assist_no_message', flush=True)
+                # Asked for, so the first line replaces the stale sentence; the rest of the
+                # repetition queues behind it so every line is still read.
+                for index, row in enumerate(batch):
+                    speech.say('assist_text', text=row['text'], flush=index == 0)
             elif command == COMMAND_DESCRIPTION:
                 if not descriptions:
-                    speech.say('assist_no_description')
-                for row in descriptions:
-                    speech.say('assist_text', text=row['text'])
+                    speech.say('assist_no_description', flush=True)
+                for index, row in enumerate(descriptions):
+                    speech.say('assist_text', text=row['text'], flush=index == 0)
             # The game can end while narration is paused, so this always runs.
             try:
                 emulator_exited = connection.poll()
@@ -366,6 +401,11 @@ def run(directory=None):
                 cues.reset()
                 audio.stop()
                 descriptions = []
+                pressed = False
+            if paused:
+                # Nothing on screen is being read, so there is nothing for a press to answer.
+                AssistRuntime.setAwaitingInput(False)
+                pressed = False
             if not paused:
                 snapshot = None
                 try:
@@ -387,6 +427,15 @@ def run(directory=None):
                         audio.stop()
                         notice.failure('cues', cue_error, time.monotonic())
                     items, descriptions, layouts = reader.read(snapshot)
+                    # Whether this screen waits for a button, told to the speech side so that a
+                    # press can end the sentence in progress there and only there. The presses of
+                    # the frame are taken here and count as an answer only on such a screen.
+                    waiting = awaiting_input(data, items, layouts)
+                    AssistRuntime.setAwaitingInput(waiting)
+                    # Taken every frame either way: a press during play answers nothing, and once
+                    # the game stops waiting the press it was waiting for is spent as well.
+                    presses = AssistRuntime.takePresses()
+                    pressed = waiting and (pressed or presses > 0)
                     if observed is not None:
                         try:
                             cue = cues.update(observed, metadata, items)
@@ -407,9 +456,15 @@ def run(directory=None):
                     # over and is closed here.
                     notice.recover('reading')
                     batch = narration.update(items)
-                    for row in batch:
-                        speech.say('assist_text', text=row['text'])
-                        logger.event('Live announcement', **row)
+                    if batch:
+                        # The first message of an answer replaces the stale sentence, because the
+                        # press that asked for it has already ended that sentence; the rest of the
+                        # batch queues behind it so nothing is skipped.
+                        for index, row in enumerate(batch):
+                            speech.say('assist_text', text=row['text'],
+                                       flush=index == 0 and pressed)
+                            logger.event('Live announcement', **row)
+                        pressed = False
                     if logger.enabled:
                         logger.debug('Live layout observation', pid=metadata['pid'], items=items,
                                      owners=[{**{k: o[k] for k in ('owner', 'owner_vtable', 'root')},
@@ -430,6 +485,8 @@ def run(directory=None):
                         cues.reset()
                         audio.stop()
                         descriptions = []
+                        AssistRuntime.setAwaitingInput(False)
+                        pressed = False
                     else:
                         # Guest RAM may be mid-write; do not read stale state. The
                         # failure opens an episode, which is reported once however
@@ -439,6 +496,10 @@ def run(directory=None):
                         cues.reset()
                         audio.stop()
                         descriptions = []
+                        # Nothing could be read, so nothing is known to be waiting, and a press
+                        # made now must not resurface as an answer to the next screen read.
+                        AssistRuntime.setAwaitingInput(False)
+                        pressed = False
             time.sleep(max(0, 0.08 - (time.monotonic() - tick)))
     except (DiagnosticError, OSError) as error:
         # Nothing can be read at all any more, so this is not a failure the assist

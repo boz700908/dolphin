@@ -573,10 +573,10 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // Keys reach the game through here whatever sent them: a controller over Bluetooth, a
         // keyboard, a TV remote. The narration cuts in on the press itself, so it listens here
-        // rather than to any one device. The repeat of a held key is not a new press.
-        when (event.action) {
-            KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) AssistTts.noteInputDown()
-            KeyEvent.ACTION_UP -> AssistTts.noteInputUp()
+        // rather than to any one device, and the key code says whether the press is a d-pad
+        // direction. The repeat of a held key is not a new press, and the release says nothing.
+        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+            AssistTts.noteKeyDown(event.keyCode)
         }
 
         if (!menuVisible) {
@@ -1016,6 +1016,18 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
     }
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        // A controller's d-pad reaches the game as an axis rather than as keys, so the narration is
+        // told about it here; the hat axes are the d-pad by definition, whatever the game maps them
+        // to. Holding a direction reports the same value every frame, which is not a new press.
+        // Devices without hat axes are left out entirely, since their events would read as the hat
+        // being let go of between every pair of stick movements.
+        if (event.device?.getMotionRange(MotionEvent.AXIS_HAT_X) != null) {
+            AssistTts.noteHatAxis(
+                event.getAxisValue(MotionEvent.AXIS_HAT_X),
+                event.getAxisValue(MotionEvent.AXIS_HAT_Y)
+            )
+        }
+
         if (!menuVisible) {
             if (ControllerInterface.dispatchGenericMotionEvent(event)) {
                 return true

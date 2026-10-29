@@ -11,14 +11,22 @@ class SpeechHandler:
         self._logger = logger
         self._enabled = enabled
 
-    def say(self, key, **values):
-        '''Localize one message and hand it to the speech queue.'''
+    def say(self, key, flush=False, **values):
+        '''Localize one message and hand it to the speech queue.
+
+        Queued, not awaited: the platform serialises utterances itself, so the
+        reading loop keeps its rate no matter how long a message takes.
+
+        flush asks for the message to replace whatever is audible instead of
+        queueing behind it. The caller sets it only for a message the player
+        asked for by pressing something on a screen that was waiting for them,
+        because that message is the answer to the press and the sentence still
+        being read describes the moment before it.
+        '''
         text = Loc.Get(key, **values)
         if not self._enabled:
             return
-        # Queued, not awaited: the platform serialises utterance itself, so the
-        # reading loop keeps its rate no matter how long a message takes.
-        AssistRuntime.speak(text)
+        AssistRuntime.speak(text, flush)
 
     def clear(self):
         '''Drop messages that have not started, so stale text is not read.'''

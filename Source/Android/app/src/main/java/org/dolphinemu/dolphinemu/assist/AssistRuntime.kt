@@ -81,7 +81,9 @@ object AssistRuntime {
                 module.callAttr("run", directory)
             } catch (e: Exception) {
                 Log.e(TAG, "Narration worker failed", e)
-                AssistTts.say("Speech assist stopped: ${e.message}")
+                // Nothing the player pressed asked for this, so it is not a reply and waits its
+                // turn rather than cutting in.
+                AssistTts.say("Speech assist stopped: ${e.message}", flush = false)
             } finally {
                 running.set(false)
                 worker = null
@@ -254,11 +256,33 @@ object AssistRuntime {
 
     /**
      * Speaks one message through the system screen reader voice.
+     *
+     * [flush] is set by the reader when the message answers a press the player made on a screen
+     * where the game was waiting for one, so that it replaces the stale sentence instead of
+     * queueing behind it. Everything else is narration and queues.
      */
     @JvmStatic
-    fun speak(text: String) {
-        AssistTts.say(text)
+    fun speak(text: String, flush: Boolean) {
+        AssistTts.say(text, flush)
     }
+
+    /**
+     * Reports whether the screen the player is on waits for a button, as the reader sees it every
+     * frame. It is what decides whether a press other than the d-pad may cut speech short.
+     */
+    @JvmStatic
+    fun setAwaitingInput(awaiting: Boolean) {
+        AssistTts.setAwaitingInput(awaiting)
+    }
+
+    /**
+     * Returns how many presses happened since the reader last asked, and forgets them.
+     *
+     * The reader pairs this with the messages of the same frame: a message produced by a press is
+     * the game's answer to it.
+     */
+    @JvmStatic
+    fun takePresses(): Int = AssistTts.takePresses()
 
     /**
      * Drops speech that has not started, so a stale cue is not read out.
