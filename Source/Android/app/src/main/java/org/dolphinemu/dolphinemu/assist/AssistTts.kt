@@ -83,6 +83,11 @@ object AssistTts {
     // the same words arriving again while they are audible are not restarted.
     private var speakingText: String? = null
 
+    // The utterance the engine was handed and has not reported the end of. The engine does not
+    // always report an utterance it was stopped out of, so a stop clears this as well: it is what
+    // decides whether the next message queues behind the last one or starts the engine itself.
+    private var audibleId: String? = null
+
     // Presses since the reader last looked. Written on the main thread, read from the narration
     // thread, which is the one that knows whether the game is waiting for the player.
     private val presses = AtomicInteger(0)
@@ -300,6 +305,9 @@ object AssistTts {
                 if (text != null && speakingText == text) {
                     speakingText = null
                 }
+                if (utteranceId == audibleId) {
+                    audibleId = null
+                }
             }
         })
 
@@ -360,6 +368,9 @@ object AssistTts {
         // The engine reports the stop back through onStop, but the text is already stale: a report
         // of the same state after the press has to be read again, not taken for a repeat.
         speakingText = null
+        // Nothing is audible from here on, whatever the engine goes on to report about the
+        // utterance it was stopped out of.
+        audibleId = null
         engine?.stop()
     }
 
@@ -369,7 +380,16 @@ object AssistTts {
         // QUEUE_FLUSH: say this now and drop whatever is still speaking, because a message that is
         // still being read describes a moment that has passed. QUEUE_ADD: this is narration nobody
         // asked for, so it waits until what is audible has been read to its end.
-        val mode = if (flush) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+        //
+        // With nothing audible the flush drops nothing and is also what starts the engine: a
+        // message queued behind an utterance that was stopped out of is held until the next one is
+        // spoken after it, and the two are then heard at once. An old engine reports that stop back
+        // late or not at all, so the engine is never trusted to know what is left in it.
+        val mode = if (flush || audibleId == null) {
+            TextToSpeech.QUEUE_FLUSH
+        } else {
+            TextToSpeech.QUEUE_ADD
+        }
 
         val id = (++nextUtteranceId).toString()
         utteranceTexts[id] = text
@@ -383,6 +403,8 @@ object AssistTts {
         if (result != TextToSpeech.SUCCESS) {
             utteranceTexts.remove(id)
             Log.w(TAG, "Speak rejected ($result): $text")
+        } else {
+            audibleId = id
         }
     }
 
@@ -393,6 +415,7 @@ object AssistTts {
         }
         engine = null
         speakingText = null
+        audibleId = null
         presses.set(0)
         awaitingInput = false
         utteranceTexts.clear()
