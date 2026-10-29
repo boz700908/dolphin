@@ -268,7 +268,7 @@ object AssistRuntime {
 
     /**
      * Reports whether the screen the player is on waits for a button, as the reader sees it every
-     * frame. It is what decides whether a press other than the d-pad may cut speech short.
+     * frame. It is what decides whether a press may cut speech short at all.
      */
     @JvmStatic
     fun setAwaitingInput(awaiting: Boolean) {

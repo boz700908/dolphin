@@ -49,18 +49,6 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) : SurfaceView(contex
     // across it reports a new press per direction and not one per frame.
     private val dpadDirections = HashMap<InputOverlayDrawableDpad, Int>()
 
-    // Whatever sends a d-pad direction, the narration treats it the same way: a direction ends the
-    // sentence in progress, on any screen.
-    private fun isDirection(control: Int): Boolean = when (control) {
-        ControlId.WIIMOTE_DPAD_UP, ControlId.WIIMOTE_DPAD_DOWN,
-        ControlId.WIIMOTE_DPAD_LEFT, ControlId.WIIMOTE_DPAD_RIGHT,
-        ControlId.GCPAD_DPAD_UP, ControlId.GCPAD_DPAD_DOWN,
-        ControlId.GCPAD_DPAD_LEFT, ControlId.GCPAD_DPAD_RIGHT,
-        ControlId.CLASSIC_DPAD_UP, ControlId.CLASSIC_DPAD_DOWN,
-        ControlId.CLASSIC_DPAD_LEFT, ControlId.CLASSIC_DPAD_RIGHT -> true
-        else -> false
-    }
-
     private val overlayJoysticks: MutableSet<InputOverlayDrawableJoystick> = HashSet()
     private var overlayPointer: InputOverlayPointer? = null
 
@@ -183,10 +171,10 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) : SurfaceView(contex
                         button.trackId = event.getPointerId(pointerIndex)
                         pressed = true
                         // A finger here presses a control exactly as a controller does, so the
-                        // narration is told about the press: a d-pad direction ends the sentence in
-                        // progress, another button only when the game is waiting for one. Nothing
-                        // is reported on release, as how long a press is held does not matter.
-                        AssistTts.noteInputDown(isDirection(button.control))
+                        // narration is told about the press; whether it interrupts anything is
+                        // decided by the screen, not by the button. Nothing is reported on
+                        // release, as how long a press is held does not matter.
+                        AssistTts.noteInputDown()
                         InputOverrider.setControlState(controllerIndex, button.control, if (button.getPressedState()) 1.0 else 0.0)
 
                         val analogControl = getAnalogControlForTrigger(button.control)
@@ -288,7 +276,7 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) : SurfaceView(contex
                                 directions = directions or (1 shl i)
                         if (directions != 0 && directions != dpadDirections[dpad]) {
                             dpadDirections[dpad] = directions
-                            AssistTts.noteInputDown(direction = true)
+                            AssistTts.noteInputDown()
                         }
                     }
                 }

@@ -9,7 +9,6 @@ import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
-import android.view.KeyEvent
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -20,22 +19,19 @@ import java.util.concurrent.atomic.AtomicInteger
  *
  * What interrupts what is decided by the player's own input and by nothing else. Every device
  * reports here -- the gesture layer, the on-screen overlay, a controller, a keyboard, a TV remote
- * -- so which one was used never enters into it. Two rules follow from what the game is doing when
- * the press happens:
+ * -- so which one was used never enters into it, and no press is treated differently from another.
  *
- * - A d-pad press ends the sentence in progress, on the press itself. The d-pad is how this game
- *   is played, and a direction replaces the moment being described, so carrying on with the old
- *   sentence would tell the player about a moment that is no longer there.
- * - Any other press ends it only while the game is waiting for the player: a dialogue line, a
- *   grade, a letter in the mailbox, a menu. There the press is an answer, and what the game makes
- *   of it is a new message a frame later, which is read from its start because the stale text was
- *   already dropped. While the game is being played rather than waiting for the player -- including
- *   while a level is showing its own instructions -- a button is part of the play itself and
- *   narration has to be allowed to finish, so nothing is cut off.
+ * A press ends the sentence in progress only while the game is waiting for the player: a dialogue
+ * line, a grade, a letter in the mailbox, a menu. There the press is an answer, and what the game
+ * makes of it is a new message a frame later, which is read from its start because the stale text
+ * was already dropped. While the game is being played rather than waiting for the player --
+ * including while a level is showing its own instructions, such as the hints a karate round gives
+ * and repeats -- a button, a direction or a flick is all part of the play itself, so narration is
+ * allowed to finish and nothing is cut off.
  *
- * Whether the game waits is not guessed here. The Python reader knows it from the native layouts it
- * has just read and reports it every frame; the reader also takes the press count, so a message
- * that answers a press is spoken queued behind nothing instead of behind stale text. Nothing counts
+ * Whether the game waits is not guessed here. The Python reader knows it from what is actually on
+ * screen and reports it every frame; the reader also takes the press count, so a message that
+ * answers a press is spoken queued behind nothing instead of behind stale text. Nothing counts
  * time: a press, and the state the game is in when it happens, are the whole of the decision.
  *
  * The engine is used as the system has it -- its own voice, language, rate and pitch. The one
@@ -65,14 +61,6 @@ object AssistTts {
 
     /** How far a d-pad hat has to travel before it counts as pointing that way. */
     private const val HAT_DEADZONE = 0.3f
-
-    /** Key codes that reach the game as a d-pad direction, whichever device sent them. */
-    private val DPAD_KEYS = setOf(
-        KeyEvent.KEYCODE_DPAD_UP,
-        KeyEvent.KEYCODE_DPAD_DOWN,
-        KeyEvent.KEYCODE_DPAD_LEFT,
-        KeyEvent.KEYCODE_DPAD_RIGHT
-    )
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -181,33 +169,25 @@ object AssistTts {
      * key dispatch of the emulation activity and the gesture layer, all of which run on the main
      * thread.
      *
-     * [direction] marks the d-pad, which cuts in wherever it happens; anything else cuts in only
-     * where the game is waiting for the player. See the class comment for why the two differ.
+     * A press is only ever an answer to a screen that waits for one, so what it interrupts depends
+     * on that alone and not on which control it was: a d-pad direction, a flick and a button are
+     * all the same here. See the class comment.
      */
     @JvmStatic
-    fun noteInputDown(direction: Boolean = false) {
+    fun noteInputDown() {
         presses.incrementAndGet()
 
-        if (direction || awaitingInput) {
+        if (awaitingInput) {
             interrupt()
         }
     }
 
     /**
-     * Records a key press by its code, so the caller does not have to decide what counts as a
-     * direction. Called from the emulation activity for every device that sends key events.
-     */
-    @JvmStatic
-    fun noteKeyDown(keyCode: Int) {
-        noteInputDown(keyCode in DPAD_KEYS)
-    }
-
-    /**
      * Records what a controller's d-pad hat is doing, reported as an axis rather than as keys.
      *
-     * A push that stays pushed is one direction and not a stream of presses, so only the change
-     * counts: the hat is remembered by the direction it points in, and a change to another one is
-     * a new press, which is a direction and so ends the sentence in progress.
+     * A push that stays pushed is one press and not a stream of them, so only the change counts:
+     * the hat is remembered by the direction it points in, and a change to another one is a new
+     * press.
      */
     @JvmStatic
     fun noteHatAxis(x: Float, y: Float) {
@@ -225,7 +205,7 @@ object AssistTts {
 
         hatX = sx
         hatY = sy
-        noteInputDown(direction = true)
+        noteInputDown()
     }
 
     /**

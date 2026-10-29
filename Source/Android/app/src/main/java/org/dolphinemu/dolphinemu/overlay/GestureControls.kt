@@ -136,7 +136,8 @@ class GestureControls(private val controllerIndex: Int) {
         val release = SWIPE_RELEASE_DP * density
 
         val distance = if (dx == 0f && dy == 0f) 0f else kotlin.math.hypot(dx, dy)
-        val isHoldingDirection = isDirection(state.control)
+        val isHoldingDirection = state.control == WIIMOTE_UP || state.control == WIIMOTE_DOWN ||
+                state.control == WIIMOTE_LEFT || state.control == WIIMOTE_RIGHT
 
         // A direction is only kept while the finger stays out past the release distance, so a
         // finger hovering on the threshold does not flicker between the d-pad and A/B. Coming back
@@ -154,14 +155,6 @@ class GestureControls(private val controllerIndex: Int) {
 
         return if (dy > 0f) WIIMOTE_DOWN else WIIMOTE_UP
     }
-
-    /**
-     * Whether [control] is one of the four d-pad directions, which the narration treats differently
-     * from the buttons: a direction ends the sentence in progress wherever it is pressed.
-     */
-    private fun isDirection(control: Int): Boolean =
-        control == WIIMOTE_UP || control == WIIMOTE_DOWN ||
-                control == WIIMOTE_LEFT || control == WIIMOTE_RIGHT
 
     /**
      * What a freshly pressed finger landed on: a corner first, then A or B in the side bands, and
@@ -219,10 +212,10 @@ class GestureControls(private val controllerIndex: Int) {
             InputOverrider.setControlState(controllerIndex, control, 1.0)
         }
 
-        // The narration cuts in on the press itself, so every press is reported, whichever control
-        // it was, and a d-pad direction is marked as one: it ends the sentence in progress wherever
-        // it happens, while the other controls only do so where the game waits for an answer.
-        AssistTts.noteInputDown(isDirection(control))
+        // The narration is told of every press, whichever control it was and however it was made:
+        // whether it interrupts anything is decided by the screen the player is on, not by what was
+        // pressed.
+        AssistTts.noteInputDown()
     }
 
     private fun release(control: Int) {
