@@ -83,7 +83,7 @@ object AssistRuntime {
                 Log.e(TAG, "Narration worker failed", e)
                 // Nothing the player pressed asked for this, so it is not a reply and waits its
                 // turn rather than cutting in.
-                AssistTts.say("Speech assist stopped: ${e.message}", flush = false)
+                AssistTts.say("Speech assist stopped: ${e.message}", flush = false, waits = false)
             } finally {
                 running.set(false)
                 worker = null
@@ -257,22 +257,17 @@ object AssistRuntime {
     /**
      * Speaks one message through the system screen reader voice.
      *
-     * [flush] is set by the reader when the message answers a press the player made on a screen
-     * where the game was waiting for one, so that it replaces the stale sentence instead of
-     * queueing behind it. Everything else is narration and queues.
+     * [flush] is set by the reader when the message answers a press the player made, so that it
+     * replaces the stale sentence instead of queueing behind it. Everything else is narration and
+     * queues.
+     *
+     * [waits] is the reader's finding about this one message: whether it stays on screen until a
+     * press moves it on. A press cuts a message that waits and leaves the rest of the queue alone,
+     * because one screen can carry both -- a lesson's dialogue box beside the round's own hints.
      */
     @JvmStatic
-    fun speak(text: String, flush: Boolean) {
-        AssistTts.say(text, flush)
-    }
-
-    /**
-     * Reports whether the screen the player is on waits for a button, as the reader sees it every
-     * frame. It is what decides whether a press may cut speech short at all.
-     */
-    @JvmStatic
-    fun setAwaitingInput(awaiting: Boolean) {
-        AssistTts.setAwaitingInput(awaiting)
+    fun speak(text: String, flush: Boolean, waits: Boolean) {
+        AssistTts.say(text, flush, waits)
     }
 
     /**
