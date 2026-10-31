@@ -120,9 +120,10 @@ android {
 
     defaultConfig {
         ndk {
-            // We only officially support arm64-v8a and x86_64.
-            // If you want to try building other ABIs anyway, you need -DENABLE_GENERIC=ON.
-            abiFilters += listOf("arm64-v8a", "x86_64") //, "armeabi-v7a", "x86"
+            // Only the one ABI the launcher ships for: this build goes on a phone and nowhere
+            // else, and the other architecture was half the native build time for an APK nobody
+            // installs. The rest of the list is upstream's, kept as it was.
+            abiFilters += listOf("arm64-v8a") //, "armeabi-v7a", "x86", "x86_64"
         }
 
         externalNativeBuild {
