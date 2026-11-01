@@ -11,7 +11,7 @@ class SpeechHandler:
         self._logger = logger
         self._enabled = enabled
 
-    def say(self, key, flush=False, waits=False, **values):
+    def say(self, key, flush=False, **values):
         '''Localize one message and hand it to the speech queue.
 
         Queued, not awaited: the platform serialises utterances itself, so the
@@ -21,17 +21,13 @@ class SpeechHandler:
         queueing behind it. The caller sets it only for a message the player
         asked for by pressing something, because that message is the answer to
         the press and the sentence still being read describes the moment before
-        it.
-
-        waits says that this one message stays on screen until a press moves it
-        on, so a press may end it. It is asked of each message and never of the
-        screen: a lesson can show a dialogue box and the round's own hints at
-        the same time, and only the box is what a press answers.
+        it. Nothing else is ever cut: a press on its own is part of the play,
+        and a level announces while the player is pressing all the while.
         '''
         text = Loc.Get(key, **values)
         if not self._enabled:
             return
-        AssistRuntime.speak(text, flush, waits)
+        AssistRuntime.speak(text, flush)
 
     def clear(self):
         '''Drop messages that have not started, so stale text is not read.'''

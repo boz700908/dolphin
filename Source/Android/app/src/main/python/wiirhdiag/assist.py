@@ -276,41 +276,6 @@ class ReadingHandler:
         return items, descriptions, layouts
 
 
-# Kinds of message that only appear where the game waits for the player to press a button: a
-# dialogue line, a grade, a letter, a menu, the game's own title and pause screens. A press there
-# is an answer, so it ends that message and the game's reply is read from its start.
-#
-# Nothing a level shows during play is in this set, including the word a karate round draws, an
-# endless score, a hihat demo, a lyric line. They are read while the level runs, and the player is
-# pressing buttons all the while, so a press there is part of the play and never an answer.
-#
-# The credit rolls and the ending are left out as well: they turn their own pages, so nothing they
-# show is waiting for a press and a press must not cut a page short.
-WAITING_KINDS = frozenset((
-    'title', 'selection', 'files', 'cafe', 'letter', 'lists', 'extras',
-    'two_player', 'record_selector', 'grading', 'dual_grading', 'endless_result', 'pause',
-))
-
-# A dialogue box is the one drawing of a level's own that waits: its words stay up until the player
-# presses a button, and pressing is how the story moves on. Every verified family draws it under
-# the same shared message key, so the key names it and not the layout that happens to own it.
-WAITING_KEYS = frozenset(('tutorial:instruction',))
-
-
-def waits_for_press(row):
-    """Whether this one message stays on screen until the player presses something.
-
-    Asked of each message and never of the screen it is on. A lesson showing a dialogue box is
-    also the screen that round's own hints appear on, so a press has to answer the box while the
-    hints keep being read: were this a per-screen finding, silencing the box would silence them.
-
-    Decided by the messages themselves, from the native profile rather than by timing: a supported
-    layout can stay registered through a whole level while drawing nothing that waits, so only
-    text actually on screen is ever asked about.
-    """
-    return row.get('kind') in WAITING_KINDS or row['key'] in WAITING_KEYS
-
-
 # Menu commands the emulator posts; the same names as the Kotlin constants.
 COMMAND_STOP = 'stop'
 COMMAND_PAUSE = 'pause'
@@ -434,9 +399,9 @@ def run(directory=None):
                         notice.failure('cues', cue_error, time.monotonic())
                     items, descriptions, layouts = reader.read(snapshot)
                     # The presses of the frame are taken here rather than left to the speech side,
-                    # because a press belongs to the message the game makes of it a frame later. A
-                    # press is only ever an answer to a message that waits, which is decided one
-                    # message at a time as each is handed over, never for the screen as a whole.
+                    # because a press belongs to the message the game makes of it a frame later:
+                    # the first message of the next batch is that answer, and it replaces what is
+                    # being read without the speech side having to guess at any of it.
                     presses = AssistRuntime.takePresses()
                     pressed = pressed or presses > 0
                     if observed is not None:
@@ -460,22 +425,18 @@ def run(directory=None):
                     notice.recover('reading')
                     batch = narration.update(items)
                     if batch:
-                        # The first message of an answer replaces the stale sentence, because the
-                        # press that asked for it has already ended that sentence; the rest of the
-                        # batch queues behind it so nothing is skipped.
+                        # The first message of a batch replaces what is being read, because the
+                        # press that asked for it has already moved the game past that sentence;
+                        # the rest of the batch waits its turn so nothing is skipped.
                         #
-                        # Each message carries its own finding about whether it waits for a press:
-                        # one screen can hold a dialogue box and the round's hints at once, and a
-                        # press answers the box without silencing what is standing beside it.
+                        # Nothing else is cut, and no message is classified here: a level
+                        # announces while the player is pressing all the while, and those presses
+                        # are part of the play rather than answers to what is on screen. A press
+                        # reaches the speech side only as this one fact, and only for the first
+                        # message after it.
                         for index, row in enumerate(batch):
-                            waits = waits_for_press(row)
-                            # A press only ever cuts a message it is the answer to, so a batch
-                            # announced while the level is being played queues behind whatever is
-                            # being read instead of replacing it. The press is kept until an
-                            # announcement is made at all, because a change is confirmed over two
-                            # captures and the answer arrives a frame later than the press.
                             speech.say('assist_text', text=row['text'],
-                                       flush=index == 0 and pressed and waits, waits=waits)
+                                       flush=index == 0 and pressed)
                             logger.event('Live announcement', **row)
                         pressed = False
                     if logger.enabled:

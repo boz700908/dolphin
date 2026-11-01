@@ -259,15 +259,11 @@ object AssistRuntime {
      *
      * [flush] is set by the reader when the message answers a press the player made, so that it
      * replaces the stale sentence instead of queueing behind it. Everything else is narration and
-     * queues.
-     *
-     * [waits] is the reader's finding about this one message: whether it stays on screen until a
-     * press moves it on. A press cuts a message that waits and leaves the rest of the queue alone,
-     * because one screen can carry both -- a lesson's dialogue box beside the round's own hints.
+     * waits its turn: a press on its own never ends a message.
      */
     @JvmStatic
-    fun speak(text: String, flush: Boolean, waits: Boolean) {
-        AssistTts.say(text, flush, waits)
+    fun speak(text: String, flush: Boolean) {
+        AssistTts.say(text, flush)
     }
 
     /**

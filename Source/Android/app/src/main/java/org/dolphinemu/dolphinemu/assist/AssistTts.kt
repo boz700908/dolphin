@@ -6,6 +6,7 @@ import android.content.Context
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
@@ -15,31 +16,30 @@ import java.util.concurrent.atomic.AtomicInteger
  * Screen-reader speech output through the platform TextToSpeech engine.
  *
  * Narration runs on its own Python thread, which must never block on speech, so every request is
- * posted to the main looper rather than awaited.
+ * posted to the main looper and never awaited.
  *
- * What interrupts what is decided by the player's own input and by nothing else. Every device
- * reports here -- the gesture layer, the on-screen overlay, a controller, a keyboard, a TV remote
- * -- so which one was used never enters into it, and no press is treated differently from another.
+ * A press on its own ends nothing. What the player did is only recorded: its time, and that it
+ * happened at all. A sentence being read therefore carries on through a button, a direction or a
+ * flick, which is what a player needs while a level is running and every press is part of the
+ * play rather than an answer to anything on screen.
  *
- * A press ends the sentence in progress only while that sentence is itself waiting for one: a
- * dialogue line, a grade, a letter in the mailbox, a menu. There the press is an answer, and what
- * the game makes of it is a new message a frame later, which is read from its start because the
- * stale text was already dropped. A message that is not waiting -- the hints a karate round gives
- * and repeats, a lyric line, an endless score, anything a level draws while it is being played --
- * is read to its end, because a button, a direction or a flick made during play is part of the
- * play and not an answer to anything.
+ * What replaces a sentence is the next one, and only when the reader says it is the answer to a
+ * press. Then it is heard from its start, in place of the stale text, because the reader cannot
+ * see the screen and cannot tell that the words it was reading describe a moment that has passed.
+ * That single case is the whole of the interrupting rule, and the reader decides it per message
+ * from what is on screen and from the presses it took, never from timing.
  *
- * The decision is made per message and not per screen, because one screen can carry both kinds at
- * once: a lesson showing a dialogue box is also the screen the round's own hints appear on, and
- * stopping the engine to answer the box would silence them too. So each message is handed here
- * with the reader's finding about that message alone, and a press cuts what is being read and
- * nothing else. What the engine had not started yet is given back to it afterwards, minus the
- * messages that were themselves waiting: those describe the moment the press has moved past.
+ * Everything else waits its turn. The engine is given one message at a time and the rest stand
+ * here, in the order they were announced, so that a cut drops what was not reached and re-reading
+ * a queued message is never needed to put the queue back together. While the player is busy --
+ * within a short window of the last press -- only the newest waiting message is kept: a level
+ * announces far faster than it can be read aloud, and the older ones describe states the player
+ * has already moved past, so keeping them would leave the reader behind the game.
  *
- * Whether a message waits is not guessed here. The Python reader knows it from what is actually on
- * screen and says so about every message it hands over; the reader also takes the press count, so
- * a message that answers a press is spoken queued behind nothing instead of behind stale text.
- * Nothing counts time: a press, and what is on screen when it happens, are the whole of it.
+ * The window is the one piece of timing here and it decides nothing on its own: a press inside it
+ * only limits how much may wait, never what may be cut. Nothing else counts time except a
+ * fallback for an engine that never reports finishing what it reads, which would otherwise leave
+ * the queue standing for ever.
  *
  * The engine is used as the system has it -- its own voice, language, rate and pitch. The one
  * exception is an engine that reports no default voice at all, which then reads nothing: for that
@@ -70,9 +70,19 @@ object AssistTts {
     private const val HAT_DEADZONE = 0.3f
 
     /**
-     * One message handed to the engine: its words, and whether that message waits for a press.
+     * How long after a press the player still counts as playing.
+     *
+     * Only decides how many messages may wait behind the audible one, never what may be cut. The
+     * game confirms a change over more than one frame, so a message produced by a press can arrive
+     * a little later than the press itself.
      */
-    private class Utterance(val text: String, val waits: Boolean, var id: String? = null)
+    private const val INPUT_GRACE_MS = 700L
+
+    /** How many messages may wait behind the audible one while the player is playing. */
+    private const val INTERACTIVE_QUEUE_LIMIT = 1
+
+    /** Upper bound on the fallback for an engine that never reports finishing. */
+    private const val MAX_FALLBACK_MS = 60_000L
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -84,28 +94,30 @@ object AssistTts {
     // How many times the engine has been started this session, successful or not.
     private var attempts = 0
 
-    // True once onInit has reported success; until then requests are queued.
+    // True once onInit has reported success; until then requests are held.
     private var ready = false
 
-    // Messages waiting for an engine that is not ready yet. A flush asked for before the engine
-    // existed is not one any more by the time it is spoken: nothing is audible for it to replace.
-    private val pending = ArrayDeque<Utterance>()
+    // Messages announced before the engine was ready, in the order they were announced.
+    private val pending = ArrayDeque<String>()
 
-    // What the engine has been handed, in the order it will read it, so that the front is the
-    // utterance audible now. The engine's own queue cannot be inspected and a stop drops all of it,
-    // which is why the list is kept here: what was behind the front has not started, and is handed
-    // back after a stop that only meant to cut one message.
-    private val pushed = ArrayDeque<Utterance>()
+    // Messages announced and not handed to the engine yet. The engine reads one at a time, so this
+    // is the whole of the queue and cutting is dropping it: nothing was given over that would have
+    // to be stopped one message at a time.
+    private val queue = ArrayDeque<String>()
 
-    // The text the engine is reading aloud right now. The game reports some states every frame, and
-    // the same words arriving again while they are audible are not restarted.
+    // What the engine was given and has not reported finishing. The game reports some states every
+    // frame, and the same words arriving again while they are being read are not restarted.
     private var speakingText: String? = null
+    private var speakingId: String? = null
 
-    // Whether the utterance being read is one that waits for a press.
-    private var audibleWaits = false
+    // When the last press happened, by the clock that keeps running in sleep.
+    private var lastInputAt = 0L
+
+    // The fallback timer for the message being read, kept so it can be cancelled.
+    private var watchdog: Runnable? = null
 
     // Presses since the reader last looked. Written on the main thread, read from the narration
-    // thread, which is the one that knows whether the game is waiting for the player.
+    // thread, which is the one that pairs a message with the press that produced it.
     private val presses = AtomicInteger(0)
 
     // The direction a controller's d-pad hat was last seen pointing in, per axis, so that holding
@@ -113,16 +125,14 @@ object AssistTts {
     private var hatX = 0
     private var hatY = 0
 
-    // Utterance id to the text read under it. Ids are numbers: some engines treat the id as a file
-    // name or a log key, and a whole Chinese sentence is the wrong thing to hand them for that.
-    private val utteranceTexts = HashMap<String, String>()
+    // Utterance id to what was last handed under it. Ids are numbers: some engines treat the id as
+    // a file name or a log key, and a whole Chinese sentence is the wrong thing to hand them.
     private var nextUtteranceId = 0
 
     /**
      * Starts the engine now if it was not started yet.
      *
-     * Safe to call repeatedly; the second call is a no-op. Must be called from
-     * the main thread.
+     * Safe to call repeatedly; the second call is a no-op. Must be called from the main thread.
      */
     @JvmStatic
     fun prepare(context: Context) {
@@ -142,19 +152,19 @@ object AssistTts {
     /**
      * Speaks one already-localized message.
      *
-     * Called from the narration thread. [flush] asks for the message to replace whatever is
-     * audible instead of queueing behind it, which the reader asks for only when the message
-     * answers a press the player just made. [waits] is the reader's finding about this message
-     * alone: whether it stays on screen until a press moves it on, and so may be cut by one.
+     * Called from the narration thread. [flush] is the reader's finding about this message alone:
+     * that it is the game's answer to a press the player made, and so replaces the stale sentence
+     * instead of queueing behind it. Every other message waits its turn, whatever the player is
+     * doing with their hands.
      */
     @JvmStatic
-    fun say(text: String, flush: Boolean, waits: Boolean) {
+    fun say(text: String, flush: Boolean) {
         if (text.isEmpty()) {
             return
         }
 
         mainHandler.post {
-            if (text == speakingText || text == pushed.lastOrNull()?.text) {
+            if (text == speakingText || queue.contains(text) || pending.contains(text)) {
                 return@post
             }
 
@@ -171,11 +181,11 @@ object AssistTts {
                 if (pending.size >= PENDING_LIMIT) {
                     pending.removeFirst()
                 }
-                pending.addLast(Utterance(text, waits))
+                pending.addLast(text)
                 return@post
             }
 
-            speakNow(text, flush, waits)
+            speakNow(text, flush)
         }
     }
 
@@ -184,19 +194,15 @@ object AssistTts {
      * key dispatch of the emulation activity and the gesture layer, all of which run on the main
      * thread.
      *
-     * A press is only ever an answer to a message that waits for one, so what it interrupts depends
-     * on that alone and not on which control it was: a d-pad direction, a flick and a button are
-     * all the same here. See the class comment.
+     * Nothing is cut here. A press is the player's own doing and says nothing about what is being
+     * read: it may be starting a round, moving through a level or answering a question, and only
+     * the reader, which sees what the screen does next, can tell which. What the press does leave
+     * behind is the moment it happened, which the reader pairs with the message it produced.
      */
     @JvmStatic
     fun noteInputDown() {
+        lastInputAt = SystemClock.uptimeMillis()
         presses.incrementAndGet()
-
-        // The message being read decides, not the screen it is on: a lesson can show a dialogue box
-        // and the round's own hints at the same time, and only the box is what the press answers.
-        if (audibleWaits) {
-            cutAudible()
-        }
     }
 
     /**
@@ -286,44 +292,33 @@ object AssistTts {
 
         tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {
-                speakingText = utteranceTexts[utteranceId]
-                // Only ever from the message itself: an engine that reports a start for something
-                // the list no longer holds must not make the one at its head unanswerable.
-                pushed.firstOrNull { it.id == utteranceId }?.let { audibleWaits = it.waits }
+                // Nothing to do: what is being read was recorded when it was handed over, and an
+                // engine that reports a start late must not disturb the message read after it.
             }
 
             override fun onDone(utteranceId: String?) {
-                finish(utteranceId)
+                finished(utteranceId)
             }
 
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
                 Log.w(TAG, "Utterance failed: $utteranceId")
-                finish(utteranceId)
+                finished(utteranceId)
             }
 
             override fun onStop(utteranceId: String?, interrupted: Boolean) {
-                finish(utteranceId)
-            }
-
-            private fun finish(utteranceId: String?) {
-                val text = utteranceTexts.remove(utteranceId)
-                if (text != null && speakingText == text) {
-                    speakingText = null
-                    audibleWaits = false
-                }
-                pushed.removeAll { it.id == utteranceId }
+                // Only the message that was cut is answered here; one stopped because the whole
+                // queue went with it was already forgotten before the engine was told to stop.
+                finished(utteranceId)
             }
         })
 
         ensureVoice(tts)
 
-        // Everything collected before the engine existed is spoken now, in the order it was
-        // announced. A flush among them would empty the queue it is standing in, so these are
-        // simply queued: nothing is audible yet for them to replace.
+        // Everything announced before the engine existed is spoken now, in the order it was
+        // announced: they queue behind each other exactly as they would have.
         while (pending.isNotEmpty()) {
-            val utterance = pending.removeFirst()
-            speakNow(utterance.text, flush = false, waits = utterance.waits)
+            speakNow(pending.removeFirst(), flush = false)
         }
     }
 
@@ -359,113 +354,168 @@ object AssistTts {
     }
 
     /**
-     * Ends the message being read, because a press answered it, and keeps the rest.
+     * Decides what a newly announced message does to what is already there.
      *
-     * A press tells the player nothing on its own, so it is tempting to keep reading until the game
-     * answers it. That answer can take a moment, and in the meantime the old sentence carries on
-     * past the press as if the press had not happened -- which is the one thing a reader cannot
-     * check for themselves, since they cannot see what changed. Ending on the press is also what
-     * lets the answer, if one comes, arrive as the start of a sentence rather than the middle of
-     * the previous one.
+     * An answer replaces: the reader said this message is what the game made of the player's press,
+     * so the sentence still being read describes the moment before it and the messages waiting
+     * behind it describe moments the player has moved past. All of them go, and the answer is heard
+     * from its start.
      *
-     * Only that one message goes. The engine cannot drop part of its queue, so what it had not
-     * reached yet is taken out of the list here, handed back once the stop has landed, and lost
-     * only where it was itself waiting for a press: those describe the moment the press has moved
-     * past, while a hint, a lyric or a score standing in the same queue is still worth hearing.
+     * Anything else waits. That is the whole point of not cutting on a press: a hint, a lyric, a
+     * karate cue or a score is announced while the level runs and the player is pressing all the
+     * while, and none of those presses is an answer to it. What a press does change is how much may
+     * wait -- while the player is playing, the older waiting messages are dropped and only the
+     * newest is kept, so the reading follows the game instead of falling behind it.
      */
-    private fun cutAudible() {
-        val keep = pushed.drop(1).filter { !it.waits }
-
-        pushed.clear()
-        pending.clear()
-        speakingText = null
-        syncAudible()
-
-        engine?.stop()
-
-        for (utterance in keep) {
-            speakNow(utterance.text, flush = false, waits = utterance.waits)
+    private fun speakNow(text: String, flush: Boolean) {
+        if (flush) {
+            queue.clear()
+            stopSpeaking()
+            start(text)
+            return
         }
+
+        if (speakingText != null || queue.isNotEmpty()) {
+            if (inputIsRecent()) {
+                while (queue.size >= INTERACTIVE_QUEUE_LIMIT) {
+                    queue.removeFirst()
+                }
+            }
+            queue.addLast(text)
+            return
+        }
+
+        start(text)
     }
 
     /**
-     * Drops everything, audible and queued alike.
+     * Hands one message to the engine.
      *
-     * Used when narration is paused or the game exits: none of it describes anything the player
-     * will still be able to act on afterwards.
+     * The engine is given one at a time, so this always flushes: whatever it held is either gone
+     * already or was cut a moment ago, and nothing is ever added behind a message that is still
+     * being read. A queue of one is also what makes an engine that was stopped without saying so
+     * harmless, since the next message starts from an empty one either way.
      */
-    private fun cutAll() {
-        pushed.clear()
-        pending.clear()
-        speakingText = null
-        syncAudible()
-        engine?.stop()
-    }
-
-    /**
-     * Points what a press would answer at the head of the engine's queue.
-     *
-     * Kept as the queue changes rather than taken from onStart, because an engine is not obliged to
-     * report a start, and the message at the head is the one a press meets either way.
-     */
-    private fun syncAudible() {
-        audibleWaits = pushed.firstOrNull()?.waits ?: false
-    }
-
-    private fun speakNow(text: String, flush: Boolean, waits: Boolean) {
+    private fun start(text: String) {
         val tts = engine ?: return
-
-        // QUEUE_FLUSH: say this now and drop whatever is still speaking, because a message that is
-        // still being read describes a moment that has passed. QUEUE_ADD: this is narration nobody
-        // asked for, so it waits until what is audible has been read to its end.
-        //
-        // Nothing left in the engine counts as a flush without being asked for. A message added to
-        // an empty queue is otherwise held until the next one is spoken after it, and the two are
-        // then heard together -- which is what an engine that was stopped out of an utterance and
-        // never said so leaves behind. Queued here means handed over and not yet reached, so an
-        // empty list is exactly the case where there is nothing to queue behind.
-        val mode = if (flush || pushed.isEmpty()) {
-            TextToSpeech.QUEUE_FLUSH
-        } else {
-            TextToSpeech.QUEUE_ADD
-        }
-
-        if (mode == TextToSpeech.QUEUE_FLUSH) {
-            // What was audible is gone from the engine, whether or not it reports as much.
-            pushed.clear()
-            speakingText = null
-        }
-
-        val utterance = Utterance(text, waits)
         val id = (++nextUtteranceId).toString()
-        utterance.id = id
-        utteranceTexts[id] = text
+
+        speakingId = id
+        speakingText = text
+        scheduleWatchdog(id, text)
 
         // A Bundle is always passed, empty though it is. Engines written against old versions read
         // the parameters without checking for null; handed none, they throw inside their own
         // process and go quiet for good, while the app carries on working and speak() can still
         // report success. Nothing in it is set, so the engine's own defaults -- voice, language,
         // rate, pitch, output stream -- are exactly what is used.
-        val result = tts.speak(text, mode, Bundle(), id)
+        val result = tts.speak(text, TextToSpeech.QUEUE_FLUSH, Bundle(), id)
         if (result != TextToSpeech.SUCCESS) {
-            utteranceTexts.remove(id)
             Log.w(TAG, "Speak rejected ($result): $text")
-        } else {
-            pushed.addLast(utterance)
+            finishCurrent()
         }
-        syncAudible()
     }
 
-    private fun releaseEngine() {
-        engine?.let {
-            it.stop()
-            it.shutdown()
+    /**
+     * Moves on to the next message, because the one handed over was read to its end, failed, or was
+     * given longer than it could possibly need.
+     */
+    private fun finished(utteranceId: String?) {
+        if (utteranceId != speakingId) {
+            return
         }
-        engine = null
+        finishCurrent()
+    }
+
+    private fun finishCurrent() {
+        cancelWatchdog()
+        speakingId = null
         speakingText = null
-        pushed.clear()
-        audibleWaits = false
+        if (queue.isEmpty()) {
+            return
+        }
+        start(queue.removeFirst())
+    }
+
+    /**
+     * Ends the message being read without moving on.
+     *
+     * What was waiting goes on to be read after the new message, which is why nothing has to be put
+     * back: it was never handed to the engine.
+     */
+    private fun stopSpeaking() {
+        cancelWatchdog()
+        speakingId = null
+        speakingText = null
+        engine?.stop()
+    }
+
+    /**
+     * Drops everything, audible and waiting alike.
+     *
+     * Used when narration is paused or the game exits: none of it describes anything the player
+     * will still be able to act on afterwards.
+     */
+    private fun cutAll() {
+        queue.clear()
+        pending.clear()
+        stopSpeaking()
+    }
+
+    /**
+     * Starts the fallback for a message the engine may never report.
+     *
+     * Nothing here is expected to be used: the engine says when it is done. The ones that never say
+     * it -- old and vendor engines, or one that died quietly mid-sentence -- would otherwise leave
+     * the queue standing for the rest of the session, so a message is given well over the time it
+     * takes to read, and the next one follows if the report never comes.
+     */
+    private fun scheduleWatchdog(id: String, text: String) {
+        cancelWatchdog()
+        val task = Runnable {
+            if (id == speakingId) {
+                Log.w(TAG, "No end reported; moving on")
+                finishCurrent()
+            }
+        }
+        watchdog = task
+        mainHandler.postDelayed(task, fallbackDelay(text))
+    }
+
+    private fun cancelWatchdog() {
+        watchdog?.let { mainHandler.removeCallbacks(it) }
+        watchdog = null
+    }
+
+    /**
+     * How long a message may take to read before the queue is moved on without the engine.
+     *
+     * Chinese and Latin text are read at different speeds, and the engine's own rate is unknown
+     * here, so the estimate is generous on purpose: arriving late only leaves a pause, while
+     * arriving early would talk over a message still being read.
+     */
+    private fun fallbackDelay(text: String): Long {
+        var cjk = 0
+        for (ch in text) {
+            if (ch.code in 0x3400..0x9FFF) {
+                cjk++
+            }
+        }
+        val other = text.length - cjk
+        val spoken = (cjk * 145L + other * 70L + 500L) * 3 / 4
+        return (spoken * 2 + 2000L).coerceAtMost(MAX_FALLBACK_MS)
+    }
+
+    /** Whether the player pressed something recently enough to still count as playing. */
+    private fun inputIsRecent(): Boolean =
+        lastInputAt != 0L && SystemClock.uptimeMillis() - lastInputAt <= INPUT_GRACE_MS
+
+    private fun releaseEngine() {
+        stopSpeaking()
+        queue.clear()
+        engine?.shutdown()
+        engine = null
         presses.set(0)
-        utteranceTexts.clear()
+        lastInputAt = 0L
     }
 }
