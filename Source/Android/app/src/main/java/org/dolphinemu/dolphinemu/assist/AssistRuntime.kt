@@ -81,9 +81,9 @@ object AssistRuntime {
                 module.callAttr("run", directory)
             } catch (e: Exception) {
                 Log.e(TAG, "Narration worker failed", e)
-                // Nothing the player pressed asked for this, so it is not a reply and waits its
-                // turn rather than cutting in.
-                AssistTts.say("Speech assist stopped: ${e.message}", flush = false, waits = false)
+                // Nothing the player pressed asked for this, so it is not a reply: it waits its
+                // turn instead of cutting in.
+                AssistTts.say("Speech assist stopped: ${e.message}", flush = false)
             } finally {
                 running.set(false)
                 worker = null
