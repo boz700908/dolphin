@@ -73,12 +73,20 @@ class AssistData(DiagnosticData):
 
 
 class NarrationHandler:
-    '''Track changes by content and owner type; no fixed heap address identity.'''
+    '''Track changes by content and owner type; no fixed heap address identity.
+
+    A key marked persist_on_gap describes something that stays on screen
+    through its own animation: it blinks out on a blank cell, or comes back to
+    an earlier look, and neither is the player meeting it again. Such a key
+    remembers every text it has already announced, not only the last one, so a
+    loop is read once instead of once per cycle.
+    '''
 
     def __init__(self):
         self._observed = {}
         self._spoken = {}
         self._persistent = set()
+        self._announced = {}
         self._last = []
 
     def reset(self):
@@ -86,6 +94,7 @@ class NarrationHandler:
         self._observed.clear()
         self._spoken.clear()
         self._persistent.clear()
+        self._announced.clear()
         self._last = []
 
     def update(self, items):
@@ -99,8 +108,11 @@ class NarrationHandler:
             value = (row['text'], row['owner_vtable'])
             before = self._observed.get(key)
             self._observed[key] = value
-            if before == value and self._spoken.get(key) != value:
+            heard = value in self._announced.get(key, ())
+            if before == value and self._spoken.get(key) != value and not heard:
                 self._spoken[key] = value
+                if key in self._persistent:
+                    self._announced.setdefault(key, set()).add(value)
                 ready.append(row)
         for key in set(self._observed) - present:
             self._observed.pop(key)

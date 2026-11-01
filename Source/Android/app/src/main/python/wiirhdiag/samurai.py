@@ -314,8 +314,11 @@ class SamuraiHandler(SpriteHandler):
                     'samurai artwork texture override unexpected')
             text = self._label(snapshot, manager, raw, cache)
             if text is not None:
-                rows.append(message({'owner_vtable': profile['scene_vtable']},
-                                    'samurai:' + kind, text,
-                                    'samurai_' + kind, 'samurai'))
+                row = message({'owner_vtable': profile['scene_vtable']},
+                              'samurai:' + kind, text, 'samurai_' + kind, 'samurai')
+                # The artwork is described when it appears, not whenever its own
+                # animation draws a blank cell or returns to a seen look.
+                row['persist_on_gap'] = True
+                rows.append(row)
         rows.extend(self._scenery_rows(snapshot, address, manager, registered, cache))
         return rows
