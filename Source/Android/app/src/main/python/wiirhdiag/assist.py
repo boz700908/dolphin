@@ -477,10 +477,14 @@ def run(directory=None):
                         # failure opens an episode, which is reported once however
                         # long it lasts and is closed by the first read that works.
                         notice.failure('reading', error, time.monotonic())
-                        narration.reset(); reader.reset()
+                        # A frame that could not be read is not the player leaving the
+                        # screen. Forgetting what was already announced here would make
+                        # every blip in the guest's own animation read the whole screen
+                        # again, so the narration keeps its memory and only the reader's
+                        # per-snapshot view is rebuilt.
+                        reader.reset()
                         cues.reset()
                         audio.stop()
-                        descriptions = []
                         # Nothing could be read, so nothing is known to be waiting, and a press
                         # made now must not resurface as an answer to the next screen read.
                         pressed = False
