@@ -75,14 +75,23 @@ class LauncherActivity : AppCompatActivity(), ThemeProvider {
         binding.textTitle.setText(R.string.app_name_suffixed)
         binding.imageCover.setImageResource(R.drawable.no_banner)
 
-        binding.buttonLaunch.setOnClickListener { launchGame() }
+        binding.buttonLaunch.setOnClickListener {
+            if (firstClick()) {
+                launchGame()
+            }
+        }
 
         // Long-pressing the title does what long-pressing a game does in the emulator's library:
         // it opens the game properties menu for this game.
         binding.textTitle.setOnLongClickListener { showGameProperties() }
 
         binding.buttonSettings.setOnClickListener {
-            SettingsActivity.launch(this, MenuTag.SETTINGS)
+            if (firstClick()) {
+                // This screen has been left on purpose, so nothing else the same gesture
+                // reaches may open anything behind the settings the player asked for.
+                leaving = true
+                SettingsActivity.launch(this, MenuTag.SETTINGS)
+            }
         }
 
         if (savedInstanceState == null) {
@@ -101,6 +110,9 @@ class LauncherActivity : AppCompatActivity(), ThemeProvider {
     override fun onResume() {
         ThemeHelper.setCorrectTheme(this)
         super.onResume()
+
+        // Back on screen, so the next click begins a new gesture.
+        leaving = false
 
         if (DirectoryInitialization.shouldStart(this)) {
             DirectoryInitialization.start(this)
@@ -373,9 +385,36 @@ class LauncherActivity : AppCompatActivity(), ThemeProvider {
         }
     }
 
+    // When the last click was taken, on the clock that keeps running in sleep, and whether this
+    // screen has already been left for another one.
+    private var lastClickAt = 0L
+    private var leaving = false
+
+    // How long after a click a second one is still part of the same gesture.
+    private val clickGuardMs = 500L
+
+    /**
+     * Whether this click is the first of its gesture.
+     *
+     * The buttons are read out one at a time, and a screen-reader double tap can reach two nodes
+     * at once: the one that holds accessibility focus and the one under the finger. That single
+     * gesture then asks for two screens, and the game would boot behind the settings the player
+     * is actually looking at -- invisible, with its music the only sign it is running. Only the
+     * first click of a gesture counts; once a screen has been opened, the rest of that gesture is
+     * dropped.
+     */
+    private fun firstClick(): Boolean {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (leaving || now - lastClickAt < clickGuardMs) {
+            return false
+        }
+        lastClickAt = now
+        return true
+    }
+
     /** Boots the bundled game exactly the way the emulator's own library boots a game. */
     private fun launchGame() {
-        if (preparing) {
+        if (preparing || isFinishing || isDestroyed) {
             return
         }
 
@@ -398,11 +437,19 @@ class LauncherActivity : AppCompatActivity(), ThemeProvider {
         }
 
         AfterDirectoryInitializationRunner().runWithLifecycle(this) {
+            // Getting the directories ready can take a moment, and by then this screen may be
+            // behind another one. A game must not boot where nobody asked for it.
+            if (leaving || isFinishing || isDestroyed) {
+                return@runWithLifecycle
+            }
             startEmulation(GameFileCacheManager.addOrGet(path))
         }
     }
 
     private fun startEmulation(game: GameFile) {
+        if (leaving || isFinishing || isDestroyed) {
+            return
+        }
         val paths = GameFileCacheManager.findSecondDiscAndGetPaths(game)
         EmulationActivity.launch(this, paths, false)
     }
