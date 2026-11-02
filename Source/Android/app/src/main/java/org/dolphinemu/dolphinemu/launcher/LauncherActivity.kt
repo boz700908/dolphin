@@ -113,10 +113,26 @@ class LauncherActivity : AppCompatActivity(), ThemeProvider {
 
         // Back on screen, so the next click begins a new gesture.
         leaving = false
+        visible = true
+
+        // A game that outlived its own screen would be heard and never seen: the core keeps
+        // running while the activity that showed it is gone, so this screen is the one the
+        // player is looking at and nothing may play behind it. Leaving the game the normal way
+        // stops the core already, so this only ever finds a core that was left behind -- by a
+        // game exited while it was paused, or by a start that never put a window on screen.
+        if (!org.dolphinemu.dolphinemu.NativeLibrary.IsUninitialized()) {
+            Log.warning("[Launcher] A game outlived its screen; stopping it.")
+            org.dolphinemu.dolphinemu.NativeLibrary.StopEmulation()
+        }
 
         if (DirectoryInitialization.shouldStart(this)) {
             DirectoryInitialization.start(this)
         }
+    }
+
+    override fun onPause() {
+        visible = false
+        super.onPause()
     }
 
     override fun onRequestPermissionsResult(
@@ -390,6 +406,10 @@ class LauncherActivity : AppCompatActivity(), ThemeProvider {
     private var lastClickAt = 0L
     private var leaving = false
 
+    // Whether this screen is the one on display. Nothing may start a game while it is not: the
+    // player would be told nothing, and the game would boot somewhere behind their back.
+    private var visible = false
+
     // How long after a click a second one is still part of the same gesture.
     private val clickGuardMs = 500L
 
@@ -414,7 +434,7 @@ class LauncherActivity : AppCompatActivity(), ThemeProvider {
 
     /** Boots the bundled game exactly the way the emulator's own library boots a game. */
     private fun launchGame() {
-        if (preparing || isFinishing || isDestroyed) {
+        if (preparing || isFinishing || isDestroyed || !visible) {
             return
         }
 
@@ -439,7 +459,7 @@ class LauncherActivity : AppCompatActivity(), ThemeProvider {
         AfterDirectoryInitializationRunner().runWithLifecycle(this) {
             // Getting the directories ready can take a moment, and by then this screen may be
             // behind another one. A game must not boot where nobody asked for it.
-            if (leaving || isFinishing || isDestroyed) {
+            if (leaving || isFinishing || isDestroyed || !visible) {
                 return@runWithLifecycle
             }
             startEmulation(GameFileCacheManager.addOrGet(path))
@@ -447,7 +467,7 @@ class LauncherActivity : AppCompatActivity(), ThemeProvider {
     }
 
     private fun startEmulation(game: GameFile) {
-        if (leaving || isFinishing || isDestroyed) {
+        if (leaving || isFinishing || isDestroyed || !visible) {
             return
         }
         val paths = GameFileCacheManager.findSecondDiscAndGetPaths(game)
