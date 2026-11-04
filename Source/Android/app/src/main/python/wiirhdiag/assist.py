@@ -80,13 +80,25 @@ class NarrationHandler:
     an earlier look, and neither is the player meeting it again. Such a key
     remembers every text it has already announced, not only the last one, so a
     loop is read once instead of once per cycle.
+
+    What that memory must not outlive is the player leaving the thing behind. A
+    key that stays unread for longer than GONE_SECONDS is gone rather than
+    blinking, so everything remembered about it is dropped and the player who
+    comes back to it hears it again; a shorter gap is the animation of the thing
+    itself and stays silent.
     '''
+
+    # The longest blink a screen's own animation may hide behind. Reading runs
+    # about twelve times a second, so this is many reads in a row, and a player
+    # leaving a screen and later coming back to it takes far longer.
+    GONE_SECONDS = 2.0
 
     def __init__(self):
         self._observed = {}
         self._spoken = {}
         self._persistent = set()
         self._announced = {}
+        self._seen_at = {}
         self._last = []
 
     def reset(self):
@@ -95,16 +107,19 @@ class NarrationHandler:
         self._spoken.clear()
         self._persistent.clear()
         self._announced.clear()
+        self._seen_at.clear()
         self._last = []
 
     def update(self, items):
         '''Require two consecutive matching observations and announce only new items.'''
+        now = time.monotonic()
         present, ready = set(), []
         for row in items:
             key = row['key']
             present.add(key)
             if row.get('persist_on_gap'):
                 self._persistent.add(key)
+            self._seen_at[key] = now
             value = (row['text'], row['owner_vtable'])
             before = self._observed.get(key)
             self._observed[key] = value
@@ -118,6 +133,14 @@ class NarrationHandler:
             self._observed.pop(key)
             if key not in self._persistent:
                 self._spoken.pop(key, None)
+        for key in set(self._seen_at) - present:
+            # Unread for long enough to have been left behind, so forget it and
+            # let it be new again. A key that is merely blinking keeps both its
+            # sighting and what it has already said.
+            if now - self._seen_at[key] > self.GONE_SECONDS:
+                self._seen_at.pop(key, None)
+                self._spoken.pop(key, None)
+                self._announced.pop(key, None)
         self._last = [row for row in items if self._spoken.get(row['key']) ==
                       (row['text'], row['owner_vtable'])]
         return ready
